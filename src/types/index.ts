@@ -39,6 +39,16 @@ export interface HuntingSession {
   meso_gained: number;
   duration_minutes: number;
   sojaebi: number;
+  // 솔 에르다 (개수 0-20, 게이지 0-1000)
+  start_sol_erda: number;
+  end_sol_erda: number;
+  start_sol_erda_gauge: number;
+  end_sol_erda_gauge: number;
+  sol_erda_gained: number;
+  // 솔 에르다 조각
+  start_sol_erda_piece: number;
+  end_sol_erda_piece: number;
+  sol_erda_piece_gained: number;
   start_screenshot?: string;
   end_screenshot?: string;
   items: string;

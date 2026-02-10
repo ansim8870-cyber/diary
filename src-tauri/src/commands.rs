@@ -26,6 +26,14 @@ pub struct SaveHuntingSessionInput {
     pub start_meso: i64,
     pub end_meso: i64,
     pub duration_minutes: i32,
+    // 솔 에르다 (개수 0-20, 게이지 0-1000)
+    pub start_sol_erda: i32,
+    pub end_sol_erda: i32,
+    pub start_sol_erda_gauge: i32,
+    pub end_sol_erda_gauge: i32,
+    // 솔 에르다 조각
+    pub start_sol_erda_piece: i64,
+    pub end_sol_erda_piece: i64,
     pub start_screenshot: Option<String>,
     pub end_screenshot: Option<String>,
     pub items: String,
@@ -189,6 +197,14 @@ pub fn save_hunting_session(
     let meso_gained = input.end_meso - input.start_meso;
     let sojaebi = input.duration_minutes as f64 / 30.0;
 
+    // 솔 에르다 획득량 계산 (개수 + 게이지/1000)
+    let start_sol_erda_total = input.start_sol_erda as f64 + (input.start_sol_erda_gauge as f64 / 1000.0);
+    let end_sol_erda_total = input.end_sol_erda as f64 + (input.end_sol_erda_gauge as f64 / 1000.0);
+    let sol_erda_gained = end_sol_erda_total - start_sol_erda_total;
+
+    // 솔 에르다 조각 획득량
+    let sol_erda_piece_gained = input.end_sol_erda_piece - input.start_sol_erda_piece;
+
     let session = HuntingSession {
         id: 0,
         character_id: input.character_id,
@@ -204,6 +220,14 @@ pub fn save_hunting_session(
         meso_gained,
         duration_minutes: input.duration_minutes,
         sojaebi,
+        start_sol_erda: input.start_sol_erda,
+        end_sol_erda: input.end_sol_erda,
+        start_sol_erda_gauge: input.start_sol_erda_gauge,
+        end_sol_erda_gauge: input.end_sol_erda_gauge,
+        sol_erda_gained,
+        start_sol_erda_piece: input.start_sol_erda_piece,
+        end_sol_erda_piece: input.end_sol_erda_piece,
+        sol_erda_piece_gained,
         start_screenshot: input.start_screenshot,
         end_screenshot: input.end_screenshot,
         items: input.items,

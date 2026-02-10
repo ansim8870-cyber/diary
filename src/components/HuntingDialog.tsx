@@ -28,7 +28,15 @@ interface SessionFormData {
   endExpPercent: number;
   startMeso: number;
   endMeso: number;
-  durationMinutes: number;
+  sojaebi: number;
+  // 솔 에르다
+  startSolErda: number;
+  endSolErda: number;
+  startSolErdaGauge: number;
+  endSolErdaGauge: number;
+  // 솔 에르다 조각
+  startSolErdaPiece: number;
+  endSolErdaPiece: number;
   memo: string;
 }
 
@@ -39,7 +47,13 @@ const defaultFormData: SessionFormData = {
   endExpPercent: 0,
   startMeso: 0,
   endMeso: 0,
-  durationMinutes: 30,
+  sojaebi: 1,
+  startSolErda: 0,
+  endSolErda: 0,
+  startSolErdaGauge: 0,
+  endSolErdaGauge: 0,
+  startSolErdaPiece: 0,
+  endSolErdaPiece: 0,
   memo: "",
 };
 
@@ -83,6 +97,8 @@ export function HuntingDialog({
   async function handleSaveNewSession() {
     setIsSaving(true);
     try {
+      // 소재비를 분으로 변환 (1 소재비 = 30분)
+      const durationMinutes = Math.round(newSession.sojaebi * 30);
       await invoke("save_hunting_session", {
         input: {
           character_id: characterId,
@@ -93,7 +109,13 @@ export function HuntingDialog({
           end_exp_percent: newSession.endExpPercent,
           start_meso: newSession.startMeso,
           end_meso: newSession.endMeso,
-          duration_minutes: newSession.durationMinutes,
+          duration_minutes: durationMinutes,
+          start_sol_erda: newSession.startSolErda,
+          end_sol_erda: newSession.endSolErda,
+          start_sol_erda_gauge: newSession.startSolErdaGauge,
+          end_sol_erda_gauge: newSession.endSolErdaGauge,
+          start_sol_erda_piece: newSession.startSolErdaPiece,
+          end_sol_erda_piece: newSession.endSolErdaPiece,
           start_screenshot: null,
           end_screenshot: null,
           items: "[]",
@@ -134,10 +156,30 @@ export function HuntingDialog({
     const mesoEnd = 'endMeso' in session ? session.endMeso : session.end_meso;
     const mesoGain = mesoEnd - mesoStart;
 
-    const duration = 'durationMinutes' in session ? session.durationMinutes : session.duration_minutes;
-    const sojaebi = duration / 30;
+    // SessionFormData는 sojaebi 필드 사용, HuntingSession은 duration_minutes 사용
+    const sojaebi = 'sojaebi' in session ? session.sojaebi : session.duration_minutes / 30;
 
-    return { expGain, mesoGain, sojaebi };
+    // 솔 에르다 계산
+    let solErdaGain: number;
+    let solErdaPieceGain: number;
+    if ('startSolErda' in session) {
+      // SessionFormData
+      const startTotal = session.startSolErda + session.startSolErdaGauge / 1000;
+      const endTotal = session.endSolErda + session.endSolErdaGauge / 1000;
+      solErdaGain = endTotal - startTotal;
+      solErdaPieceGain = session.endSolErdaPiece - session.startSolErdaPiece;
+    } else {
+      // HuntingSession
+      solErdaGain = session.sol_erda_gained;
+      solErdaPieceGain = session.sol_erda_piece_gained;
+    }
+
+    return { expGain, mesoGain, sojaebi, solErdaGain, solErdaPieceGain };
+  }
+
+  function handleSojaebiChange(delta: number) {
+    const newValue = Math.max(1, newSession.sojaebi + delta);
+    setNewSession({ ...newSession, sojaebi: newValue });
   }
 
   return (
@@ -213,6 +255,22 @@ export function HuntingDialog({
                             +{gains.mesoGain.toLocaleString()}
                           </span>
                         </div>
+                        {(gains.solErdaGain !== 0 || gains.solErdaPieceGain !== 0) && (
+                          <>
+                            <div>
+                              <span className="text-muted-foreground">솔 에르다:</span>{" "}
+                              <span className="text-purple-600 dark:text-purple-400">
+                                +{gains.solErdaGain.toFixed(2)}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">솔 에르다 조각:</span>{" "}
+                              <span className="text-purple-600 dark:text-purple-400">
+                                +{gains.solErdaPieceGain.toLocaleString()}
+                              </span>
+                            </div>
+                          </>
+                        )}
                       </div>
                       {session.memo && (
                         <p className="text-sm text-muted-foreground">
@@ -327,20 +385,147 @@ export function HuntingDialog({
                   </div>
                 </div>
 
+                {/* 솔 에르다 */}
+                <div className="space-y-3 p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                  <h5 className="text-sm font-medium text-purple-600 dark:text-purple-400">솔 에르다</h5>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs">시작 (개수 / 게이지)</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="20"
+                          placeholder="개수"
+                          value={newSession.startSolErda || ""}
+                          onChange={(e) =>
+                            setNewSession({
+                              ...newSession,
+                              startSolErda: Math.min(20, parseInt(e.target.value) || 0),
+                            })
+                          }
+                          className="w-16"
+                        />
+                        <Input
+                          type="number"
+                          min="0"
+                          max="999"
+                          placeholder="게이지"
+                          value={newSession.startSolErdaGauge || ""}
+                          onChange={(e) =>
+                            setNewSession({
+                              ...newSession,
+                              startSolErdaGauge: Math.min(999, parseInt(e.target.value) || 0),
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">종료 (개수 / 게이지)</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="20"
+                          placeholder="개수"
+                          value={newSession.endSolErda || ""}
+                          onChange={(e) =>
+                            setNewSession({
+                              ...newSession,
+                              endSolErda: Math.min(20, parseInt(e.target.value) || 0),
+                            })
+                          }
+                          className="w-16"
+                        />
+                        <Input
+                          type="number"
+                          min="0"
+                          max="999"
+                          placeholder="게이지"
+                          value={newSession.endSolErdaGauge || ""}
+                          onChange={(e) =>
+                            setNewSession({
+                              ...newSession,
+                              endSolErdaGauge: Math.min(999, parseInt(e.target.value) || 0),
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 솔 에르다 조각 */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>시작 솔 에르다 조각</Label>
+                    <Input
+                      type="number"
+                      value={newSession.startSolErdaPiece || ""}
+                      onChange={(e) =>
+                        setNewSession({
+                          ...newSession,
+                          startSolErdaPiece: parseInt(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>종료 솔 에르다 조각</Label>
+                    <Input
+                      type="number"
+                      value={newSession.endSolErdaPiece || ""}
+                      onChange={(e) =>
+                        setNewSession({
+                          ...newSession,
+                          endSolErdaPiece: parseInt(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label>사냥 시간 (분)</Label>
-                  <Input
-                    type="number"
-                    value={newSession.durationMinutes || ""}
-                    onChange={(e) =>
-                      setNewSession({
-                        ...newSession,
-                        durationMinutes: parseInt(e.target.value) || 0,
-                      })
-                    }
-                  />
+                  <Label>소재비</Label>
+                  <div className="flex items-center gap-2 w-32">
+                    <Input
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={newSession.sojaebi}
+                      onChange={(e) =>
+                        setNewSession({
+                          ...newSession,
+                          sojaebi: parseInt(e.target.value) || 1,
+                        })
+                      }
+                      className="text-center font-medium"
+                    />
+                    <div className="flex flex-col">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-5 w-6 rounded-b-none border-b-0"
+                        onClick={() => handleSojaebiChange(1)}
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-5 w-6 rounded-t-none"
+                        onClick={() => handleSojaebiChange(-1)}
+                        disabled={newSession.sojaebi <= 1}
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    = {(newSession.durationMinutes / 30).toFixed(1)} 소재비
+                    = {newSession.sojaebi * 30}분
                   </p>
                 </div>
 
@@ -356,8 +541,10 @@ export function HuntingDialog({
                 </div>
 
                 {/* Preview */}
-                {(newSession.startLevel > 0 || newSession.startExpPercent > 0) && (
-                  <div className="p-3 rounded-lg bg-muted/50">
+                {(newSession.startLevel > 0 || newSession.startExpPercent > 0 ||
+                  newSession.startSolErda > 0 || newSession.startSolErdaGauge > 0 ||
+                  newSession.startSolErdaPiece > 0) && (
+                  <div className="p-3 rounded-lg bg-muted/50 space-y-1">
                     <p className="text-sm">
                       예상 획득:{" "}
                       <span className="font-medium text-green-600 dark:text-green-400">
@@ -368,6 +555,18 @@ export function HuntingDialog({
                         +{calculateGains(newSession).mesoGain.toLocaleString()} 메소
                       </span>
                     </p>
+                    {(calculateGains(newSession).solErdaGain !== 0 ||
+                      calculateGains(newSession).solErdaPieceGain !== 0) && (
+                      <p className="text-sm">
+                        <span className="font-medium text-purple-600 dark:text-purple-400">
+                          +{calculateGains(newSession).solErdaGain.toFixed(2)} 솔 에르다
+                        </span>
+                        ,{" "}
+                        <span className="font-medium text-purple-600 dark:text-purple-400">
+                          +{calculateGains(newSession).solErdaPieceGain.toLocaleString()} 솔 에르다 조각
+                        </span>
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -440,6 +639,22 @@ export function HuntingDialog({
                     <span className="text-muted-foreground">사냥 횟수:</span>{" "}
                     <span className="font-medium">{sessions.length}회</span>
                   </div>
+                  {sessions.reduce((sum, s) => sum + s.sol_erda_gained, 0) !== 0 && (
+                    <div>
+                      <span className="text-muted-foreground">총 솔 에르다:</span>{" "}
+                      <span className="font-medium text-purple-600 dark:text-purple-400">
+                        +{sessions.reduce((sum, s) => sum + s.sol_erda_gained, 0).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  {sessions.reduce((sum, s) => sum + s.sol_erda_piece_gained, 0) !== 0 && (
+                    <div>
+                      <span className="text-muted-foreground">총 솔 에르다 조각:</span>{" "}
+                      <span className="font-medium text-purple-600 dark:text-purple-400">
+                        +{sessions.reduce((sum, s) => sum + s.sol_erda_piece_gained, 0).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

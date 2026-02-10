@@ -41,6 +41,16 @@ pub struct HuntingSession {
     pub meso_gained: i64,
     pub duration_minutes: i32,
     pub sojaebi: f64,
+    // 솔 에르다 (개수 0-20, 게이지 0-1000)
+    pub start_sol_erda: i32,
+    pub end_sol_erda: i32,
+    pub start_sol_erda_gauge: i32,
+    pub end_sol_erda_gauge: i32,
+    pub sol_erda_gained: f64,
+    // 솔 에르다 조각
+    pub start_sol_erda_piece: i64,
+    pub end_sol_erda_piece: i64,
+    pub sol_erda_piece_gained: i64,
     pub start_screenshot: Option<String>,
     pub end_screenshot: Option<String>,
     pub items: String, // JSON string
@@ -167,6 +177,40 @@ impl Database {
             )",
             [],
         )?;
+
+        // 솔 에르다 관련 컬럼 추가 (기존 테이블 마이그레이션)
+        let _ = self.conn.execute(
+            "ALTER TABLE hunting_sessions ADD COLUMN start_sol_erda INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE hunting_sessions ADD COLUMN end_sol_erda INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE hunting_sessions ADD COLUMN start_sol_erda_gauge INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE hunting_sessions ADD COLUMN end_sol_erda_gauge INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE hunting_sessions ADD COLUMN sol_erda_gained REAL NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE hunting_sessions ADD COLUMN start_sol_erda_piece INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE hunting_sessions ADD COLUMN end_sol_erda_piece INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE hunting_sessions ADD COLUMN sol_erda_piece_gained INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
 
         // 인덱스 생성
         self.conn.execute(
@@ -319,8 +363,10 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, character_id, date, session_order, start_level, end_level,
                     start_exp_percent, end_exp_percent, exp_gained, start_meso, end_meso,
-                    meso_gained, duration_minutes, sojaebi, start_screenshot, end_screenshot,
-                    items, memo, created_at, updated_at
+                    meso_gained, duration_minutes, sojaebi,
+                    start_sol_erda, end_sol_erda, start_sol_erda_gauge, end_sol_erda_gauge, sol_erda_gained,
+                    start_sol_erda_piece, end_sol_erda_piece, sol_erda_piece_gained,
+                    start_screenshot, end_screenshot, items, memo, created_at, updated_at
              FROM hunting_sessions WHERE date = ?1 ORDER BY session_order"
         )?;
 
@@ -340,12 +386,20 @@ impl Database {
                 meso_gained: row.get(11)?,
                 duration_minutes: row.get(12)?,
                 sojaebi: row.get(13)?,
-                start_screenshot: row.get(14)?,
-                end_screenshot: row.get(15)?,
-                items: row.get(16)?,
-                memo: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                start_sol_erda: row.get(14)?,
+                end_sol_erda: row.get(15)?,
+                start_sol_erda_gauge: row.get(16)?,
+                end_sol_erda_gauge: row.get(17)?,
+                sol_erda_gained: row.get(18)?,
+                start_sol_erda_piece: row.get(19)?,
+                end_sol_erda_piece: row.get(20)?,
+                sol_erda_piece_gained: row.get(21)?,
+                start_screenshot: row.get(22)?,
+                end_screenshot: row.get(23)?,
+                items: row.get(24)?,
+                memo: row.get(25)?,
+                created_at: row.get(26)?,
+                updated_at: row.get(27)?,
             })
         })?.collect::<Result<Vec<_>>>()?;
 
@@ -363,14 +417,19 @@ impl Database {
         self.conn.execute(
             "INSERT INTO hunting_sessions (character_id, date, session_order, start_level, end_level,
                 start_exp_percent, end_exp_percent, exp_gained, start_meso, end_meso, meso_gained,
-                duration_minutes, sojaebi, start_screenshot, end_screenshot, items, memo)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                duration_minutes, sojaebi,
+                start_sol_erda, end_sol_erda, start_sol_erda_gauge, end_sol_erda_gauge, sol_erda_gained,
+                start_sol_erda_piece, end_sol_erda_piece, sol_erda_piece_gained,
+                start_screenshot, end_screenshot, items, memo)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             params![
                 session.character_id, session.date, next_order, session.start_level, session.end_level,
                 session.start_exp_percent, session.end_exp_percent, session.exp_gained,
                 session.start_meso, session.end_meso, session.meso_gained,
-                session.duration_minutes, session.sojaebi, session.start_screenshot, session.end_screenshot,
-                session.items, session.memo
+                session.duration_minutes, session.sojaebi,
+                session.start_sol_erda, session.end_sol_erda, session.start_sol_erda_gauge, session.end_sol_erda_gauge, session.sol_erda_gained,
+                session.start_sol_erda_piece, session.end_sol_erda_piece, session.sol_erda_piece_gained,
+                session.start_screenshot, session.end_screenshot, session.items, session.memo
             ],
         )?;
 
@@ -382,14 +441,18 @@ impl Database {
             "UPDATE hunting_sessions SET
                 start_level = ?1, end_level = ?2, start_exp_percent = ?3, end_exp_percent = ?4,
                 exp_gained = ?5, start_meso = ?6, end_meso = ?7, meso_gained = ?8,
-                duration_minutes = ?9, sojaebi = ?10, start_screenshot = ?11, end_screenshot = ?12,
-                items = ?13, memo = ?14, updated_at = datetime('now')
-             WHERE id = ?15",
+                duration_minutes = ?9, sojaebi = ?10,
+                start_sol_erda = ?11, end_sol_erda = ?12, start_sol_erda_gauge = ?13, end_sol_erda_gauge = ?14, sol_erda_gained = ?15,
+                start_sol_erda_piece = ?16, end_sol_erda_piece = ?17, sol_erda_piece_gained = ?18,
+                start_screenshot = ?19, end_screenshot = ?20, items = ?21, memo = ?22, updated_at = datetime('now')
+             WHERE id = ?23",
             params![
                 session.start_level, session.end_level, session.start_exp_percent, session.end_exp_percent,
                 session.exp_gained, session.start_meso, session.end_meso, session.meso_gained,
-                session.duration_minutes, session.sojaebi, session.start_screenshot, session.end_screenshot,
-                session.items, session.memo, session.id
+                session.duration_minutes, session.sojaebi,
+                session.start_sol_erda, session.end_sol_erda, session.start_sol_erda_gauge, session.end_sol_erda_gauge, session.sol_erda_gained,
+                session.start_sol_erda_piece, session.end_sol_erda_piece, session.sol_erda_piece_gained,
+                session.start_screenshot, session.end_screenshot, session.items, session.memo, session.id
             ],
         )?;
         Ok(())
@@ -480,8 +543,10 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, character_id, date, session_order, start_level, end_level,
                     start_exp_percent, end_exp_percent, exp_gained, start_meso, end_meso,
-                    meso_gained, duration_minutes, sojaebi, start_screenshot, end_screenshot,
-                    items, memo, created_at, updated_at
+                    meso_gained, duration_minutes, sojaebi,
+                    start_sol_erda, end_sol_erda, start_sol_erda_gauge, end_sol_erda_gauge, sol_erda_gained,
+                    start_sol_erda_piece, end_sol_erda_piece, sol_erda_piece_gained,
+                    start_screenshot, end_screenshot, items, memo, created_at, updated_at
              FROM hunting_sessions ORDER BY date, session_order"
         )?;
 
@@ -501,12 +566,20 @@ impl Database {
                 meso_gained: row.get(11)?,
                 duration_minutes: row.get(12)?,
                 sojaebi: row.get(13)?,
-                start_screenshot: row.get(14)?,
-                end_screenshot: row.get(15)?,
-                items: row.get(16)?,
-                memo: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                start_sol_erda: row.get(14)?,
+                end_sol_erda: row.get(15)?,
+                start_sol_erda_gauge: row.get(16)?,
+                end_sol_erda_gauge: row.get(17)?,
+                sol_erda_gained: row.get(18)?,
+                start_sol_erda_piece: row.get(19)?,
+                end_sol_erda_piece: row.get(20)?,
+                sol_erda_piece_gained: row.get(21)?,
+                start_screenshot: row.get(22)?,
+                end_screenshot: row.get(23)?,
+                items: row.get(24)?,
+                memo: row.get(25)?,
+                created_at: row.get(26)?,
+                updated_at: row.get(27)?,
             })
         })?.collect::<Result<Vec<_>>>()?;
 
@@ -573,6 +646,14 @@ impl Database {
                     meso_gained: session_data.get("meso_gained").and_then(|v| v.as_i64()).unwrap_or(0),
                     duration_minutes: session_data.get("duration_minutes").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
                     sojaebi: session_data.get("sojaebi").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    start_sol_erda: session_data.get("start_sol_erda").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    end_sol_erda: session_data.get("end_sol_erda").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    start_sol_erda_gauge: session_data.get("start_sol_erda_gauge").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    end_sol_erda_gauge: session_data.get("end_sol_erda_gauge").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    sol_erda_gained: session_data.get("sol_erda_gained").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    start_sol_erda_piece: session_data.get("start_sol_erda_piece").and_then(|v| v.as_i64()).unwrap_or(0),
+                    end_sol_erda_piece: session_data.get("end_sol_erda_piece").and_then(|v| v.as_i64()).unwrap_or(0),
+                    sol_erda_piece_gained: session_data.get("sol_erda_piece_gained").and_then(|v| v.as_i64()).unwrap_or(0),
                     start_screenshot: session_data.get("start_screenshot").and_then(|v| v.as_str()).map(|s| s.to_string()),
                     end_screenshot: session_data.get("end_screenshot").and_then(|v| v.as_str()).map(|s| s.to_string()),
                     items: session_data.get("items").and_then(|v| v.as_str()).unwrap_or("[]").to_string(),
