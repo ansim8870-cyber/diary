@@ -1,0 +1,47 @@
+mod db;
+mod api;
+mod commands;
+
+use std::sync::Mutex;
+use db::Database;
+
+pub struct AppState {
+    pub db: Mutex<Database>,
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let database = Database::new().expect("Failed to initialize database");
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .manage(AppState {
+            db: Mutex::new(database),
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_settings,
+            commands::save_api_key,
+            commands::get_character,
+            commands::register_character,
+            commands::search_character,
+            commands::refresh_character,
+            commands::get_hunting_sessions,
+            commands::save_hunting_session,
+            commands::update_hunting_session,
+            commands::delete_hunting_session,
+            commands::get_daily_totals,
+            commands::get_exp_history,
+            commands::get_weekly_exp_from_api,
+            commands::export_data,
+            commands::import_data,
+            commands::reset_data,
+            commands::get_boss_settings,
+            commands::save_boss_setting,
+            commands::delete_boss_setting,
+            commands::update_boss_party_size,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
