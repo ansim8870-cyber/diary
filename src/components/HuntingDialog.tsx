@@ -145,36 +145,36 @@ export function HuntingDialog({
     }
   }
 
+  function isFormData(session: SessionFormData | HuntingSession): session is SessionFormData {
+    return 'endLevel' in session;
+  }
+
   function calculateGains(session: SessionFormData | HuntingSession) {
-    const levelDiff = ('endLevel' in session ? session.endLevel : session.end_level) -
-                      ('startLevel' in session ? session.startLevel : session.start_level);
-    const expStart = 'startExpPercent' in session ? session.startExpPercent : session.start_exp_percent;
-    const expEnd = 'endExpPercent' in session ? session.endExpPercent : session.end_exp_percent;
-    const expGain = (levelDiff * 100) + (expEnd - expStart);
-
-    const mesoStart = 'startMeso' in session ? session.startMeso : session.start_meso;
-    const mesoEnd = 'endMeso' in session ? session.endMeso : session.end_meso;
-    const mesoGain = mesoEnd - mesoStart;
-
-    // SessionFormData는 sojaebi 필드 사용, HuntingSession은 duration_minutes 사용
-    const sojaebi = 'sojaebi' in session ? session.sojaebi : session.duration_minutes / 30;
-
-    // 솔 에르다 계산
-    let solErdaGain: number;
-    let solErdaPieceGain: number;
-    if ('startSolErda' in session) {
+    if (isFormData(session)) {
       // SessionFormData
+      const levelDiff = session.endLevel - session.startLevel;
+      const expGain = (levelDiff * 100) + (session.endExpPercent - session.startExpPercent);
+      const mesoGain = session.endMeso - session.startMeso;
+      const sojaebi = session.sojaebi;
       const startTotal = session.startSolErda + session.startSolErdaGauge / 1000;
       const endTotal = session.endSolErda + session.endSolErdaGauge / 1000;
-      solErdaGain = endTotal - startTotal;
-      solErdaPieceGain = session.endSolErdaPiece - session.startSolErdaPiece;
+      const solErdaGain = endTotal - startTotal;
+      const solErdaPieceGain = session.endSolErdaPiece - session.startSolErdaPiece;
+      return { expGain, mesoGain, sojaebi, solErdaGain, solErdaPieceGain };
     } else {
       // HuntingSession
-      solErdaGain = session.sol_erda_gained;
-      solErdaPieceGain = session.sol_erda_piece_gained;
+      const levelDiff = session.end_level - session.start_level;
+      const expGain = (levelDiff * 100) + (session.end_exp_percent - session.start_exp_percent);
+      const mesoGain = session.end_meso - session.start_meso;
+      const sojaebi = session.duration_minutes / 30;
+      return {
+        expGain,
+        mesoGain,
+        sojaebi,
+        solErdaGain: session.sol_erda_gained,
+        solErdaPieceGain: session.sol_erda_piece_gained,
+      };
     }
-
-    return { expGain, mesoGain, sojaebi, solErdaGain, solErdaPieceGain };
   }
 
   function handleSojaebiChange(delta: number) {
