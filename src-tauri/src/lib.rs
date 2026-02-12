@@ -1,6 +1,7 @@
 mod db;
 mod api;
 mod commands;
+mod ocr;
 
 use std::sync::Mutex;
 use db::Database;
@@ -41,6 +42,24 @@ pub fn run() {
             commands::save_boss_setting,
             commands::delete_boss_setting,
             commands::update_boss_party_size,
+            // Boss Clear Commands
+            commands::save_boss_clear,
+            commands::delete_boss_clear,
+            commands::get_boss_clears_by_week,
+            commands::get_boss_clears_by_date,
+            commands::get_weekly_boss_summary,
+            commands::get_monthly_boss_clears,
+            commands::get_week_start_date,
+            commands::get_month_start_date,
+            // App Settings Commands
+            commands::get_app_settings,
+            commands::save_app_settings,
+            commands::save_screenshot_folder_path,
+            commands::get_daily_totals_with_pieces,
+            // OCR Commands
+            commands::analyze_screenshot,
+            commands::analyze_hunting_screenshots,
+            commands::extract_screenshot_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

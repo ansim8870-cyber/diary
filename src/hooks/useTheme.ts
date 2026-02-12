@@ -8,11 +8,8 @@ export function useTheme() {
     const stored = localStorage.getItem("theme") as Theme | null;
     if (stored) return stored;
 
-    // 시스템 설정 확인
-    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      return "dark";
-    }
-    return "light";
+    // 기본값은 다크모드
+    return "dark";
   });
 
   useEffect(() => {

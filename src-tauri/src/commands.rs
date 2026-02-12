@@ -1,5 +1,6 @@
 use crate::api::MapleApi;
-use crate::db::{BossSetting, Character, DailyTotal, ExpHistory, HuntingSession, Settings};
+use crate::db::{AppSettings, BossClear, BossSetting, Character, DailyTotal, Database, ExpHistory, HuntingSession, Settings, WeeklyBossSummary};
+use crate::ocr::{self, HuntingScreenshotData, HuntingResult};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -34,6 +35,7 @@ pub struct SaveHuntingSessionInput {
     // 솔 에르다 조각
     pub start_sol_erda_piece: i64,
     pub end_sol_erda_piece: i64,
+    pub sol_erda_piece_price: i64, // 해당 사냥 시점의 조각 가격
     pub start_screenshot: Option<String>,
     pub end_screenshot: Option<String>,
     pub items: String,
@@ -179,10 +181,11 @@ pub async fn refresh_character(
 #[tauri::command]
 pub fn get_hunting_sessions(
     state: State<AppState>,
+    character_id: i64,
     date: String,
 ) -> Result<Vec<HuntingSession>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_hunting_sessions(&date).map_err(|e| e.to_string())
+    db.get_hunting_sessions(character_id, &date).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -228,6 +231,7 @@ pub fn save_hunting_session(
         start_sol_erda_piece: input.start_sol_erda_piece,
         end_sol_erda_piece: input.end_sol_erda_piece,
         sol_erda_piece_gained,
+        sol_erda_piece_price: input.sol_erda_piece_price,
         start_screenshot: input.start_screenshot,
         end_screenshot: input.end_screenshot,
         items: input.items,
@@ -257,11 +261,12 @@ pub fn delete_hunting_session(state: State<AppState>, id: i64) -> Result<(), Str
 #[tauri::command]
 pub fn get_daily_totals(
     state: State<AppState>,
+    character_id: i64,
     year: i32,
     month: i32,
 ) -> Result<Vec<DailyTotal>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_daily_totals(year, month).map_err(|e| e.to_string())
+    db.get_daily_totals(character_id, year, month).map_err(|e| e.to_string())
 }
 
 // Exp History Commands
@@ -414,5 +419,283 @@ pub fn update_boss_party_size(
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.update_boss_setting_party_size(character_id, &boss_id, &difficulty, party_size)
+        .map_err(|e| e.to_string())
+}
+
+// Boss Clear Commands
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SaveBossClearInput {
+    pub character_id: i64,
+    pub boss_id: String,
+    pub difficulty: String,
+    pub cleared_date: String,
+    pub crystal_price: i64,
+    pub party_size: i32,
+    pub is_monthly: bool,
+}
+
+#[tauri::command]
+pub fn save_boss_clear(state: State<AppState>, input: SaveBossClearInput) -> Result<i64, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+
+    let period_start = if input.is_monthly {
+        Database::get_month_start_date(&input.cleared_date)
+    } else {
+        Database::get_week_start_date(&input.cleared_date)
+    };
+
+    let clear = BossClear {
+        id: 0,
+        character_id: input.character_id,
+        boss_id: input.boss_id,
+        difficulty: input.difficulty,
+        cleared_date: input.cleared_date.clone(),
+        week_start_date: period_start,
+        crystal_price: input.crystal_price,
+        party_size: input.party_size,
+        created_at: String::new(),
+    };
+
+    db.save_boss_clear(&clear, input.is_monthly).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_boss_clear(
+    state: State<AppState>,
+    character_id: i64,
+    boss_id: String,
+    week_start_date: String,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.delete_boss_clear(character_id, &boss_id, &week_start_date)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_boss_clears_by_week(
+    state: State<AppState>,
+    character_id: i64,
+    week_start_date: String,
+) -> Result<Vec<BossClear>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_boss_clears_by_week(character_id, &week_start_date)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_boss_clears_by_date(
+    state: State<AppState>,
+    character_id: i64,
+    date: String,
+) -> Result<Vec<BossClear>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_boss_clears_by_date(character_id, &date)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_weekly_boss_summary(
+    state: State<AppState>,
+    character_id: i64,
+    week_start_date: String,
+) -> Result<WeeklyBossSummary, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_weekly_boss_summary(character_id, &week_start_date)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_monthly_boss_clears(
+    state: State<AppState>,
+    character_id: i64,
+    year: i32,
+    month: i32,
+) -> Result<Vec<BossClear>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_monthly_boss_clears(character_id, year, month)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_week_start_date(date: String) -> Result<String, String> {
+    Ok(Database::get_week_start_date(&date))
+}
+
+#[tauri::command]
+pub fn get_month_start_date(date: String) -> Result<String, String> {
+    Ok(Database::get_month_start_date(&date))
+}
+
+// App Settings Commands
+#[tauri::command]
+pub fn get_app_settings(state: State<AppState>) -> Result<AppSettings, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_app_settings().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_app_settings(state: State<AppState>, sol_erda_piece_price: i64) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.save_app_settings(sol_erda_piece_price).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_screenshot_folder_path(state: State<AppState>, path: Option<String>) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.save_screenshot_folder_path(path.as_deref()).map_err(|e| e.to_string())
+}
+
+// Daily totals with piece info
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DailyTotalWithPieces {
+    pub date: String,
+    pub total_exp_gained: f64,
+    pub total_meso_gained: i64,
+    pub total_sojaebi: f64,
+    pub session_count: i32,
+    pub total_pieces: i64,
+    pub avg_piece_price: i64,
+}
+
+#[tauri::command]
+pub fn get_daily_totals_with_pieces(
+    state: State<AppState>,
+    character_id: i64,
+    year: i32,
+    month: i32,
+) -> Result<Vec<DailyTotalWithPieces>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let totals = db.get_daily_totals_with_pieces(character_id, year, month).map_err(|e| e.to_string())?;
+
+    Ok(totals.into_iter().map(|(daily, pieces, price)| DailyTotalWithPieces {
+        date: daily.date,
+        total_exp_gained: daily.total_exp_gained,
+        total_meso_gained: daily.total_meso_gained,
+        total_sojaebi: daily.total_sojaebi,
+        session_count: daily.session_count,
+        total_pieces: pieces,
+        avg_piece_price: price,
+    }).collect())
+}
+
+// OCR Commands
+#[tauri::command]
+pub async fn analyze_screenshot(image_path: String) -> Result<HuntingScreenshotData, String> {
+    // 이미지에서 텍스트 추출
+    let text = ocr::extract_text_from_image(&image_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 텍스트에서 사냥 정보 파싱
+    let data = ocr::parse_hunting_data(&text);
+
+    Ok(data)
+}
+
+#[tauri::command]
+pub async fn analyze_hunting_screenshots(
+    start_image_path: String,
+    end_image_path: String,
+) -> Result<HuntingResult, String> {
+    println!("[OCR] ========================================");
+    println!("[OCR] analyze_hunting_screenshots 호출됨");
+    println!("[OCR] 시작 이미지: {}", start_image_path);
+    println!("[OCR] 종료 이미지: {}", end_image_path);
+    println!("[OCR] ========================================");
+
+    // ===== 시작 스크린샷 분석 =====
+    println!("[OCR] 시작 스크린샷 분석 시작...");
+
+    // 1. 전체 이미지 OCR (메소, 레벨)
+    let start_text = ocr::extract_text_from_image(&start_image_path)
+        .await
+        .map_err(|e| {
+            println!("[OCR] 시작 스크린샷 분석 실패: {}", e);
+            format!("시작 스크린샷 분석 실패: {}", e)
+        })?;
+    let mut start_data = ocr::parse_hunting_data(&start_text);
+
+    println!("[OCR] ========== 시작 스크린샷 (전체) ==========");
+    println!("[OCR] 텍스트:\n{}", start_text);
+    println!("[OCR] 파싱 결과:");
+    println!("  - 레벨: {:?}", start_data.level);
+    println!("  - 메소: {:?}", start_data.meso);
+
+    // 2. 솔 에르다 영역 크롭 OCR
+    println!("[OCR] 시작 스크린샷 - 솔 에르다 영역 분석...");
+    if let Ok((count, gauge, piece)) = ocr::extract_sol_erda_from_image(&start_image_path).await {
+        if count.is_some() { start_data.sol_erda_count = count; }
+        if gauge.is_some() { start_data.sol_erda_gauge = gauge; }
+        if piece.is_some() { start_data.sol_erda_piece = piece; }
+        println!("  - 솔 에르다 개수: {:?}", start_data.sol_erda_count);
+        println!("  - 솔 에르다 게이지: {:?}", start_data.sol_erda_gauge);
+        println!("  - 솔 에르다 조각: {:?}", start_data.sol_erda_piece);
+    }
+
+    // 3. 경험치 영역 크롭 OCR
+    println!("[OCR] 시작 스크린샷 - 경험치 영역 분석...");
+    if let Ok(exp) = ocr::extract_exp_from_image(&start_image_path).await {
+        if exp.is_some() { start_data.exp_percent = exp; }
+        println!("  - 경험치: {:?}", start_data.exp_percent);
+    }
+
+    // ===== 종료 스크린샷 분석 =====
+    println!("[OCR] 종료 스크린샷 분석 시작...");
+
+    // 1. 전체 이미지 OCR (메소, 레벨)
+    let end_text = ocr::extract_text_from_image(&end_image_path)
+        .await
+        .map_err(|e| {
+            println!("[OCR] 종료 스크린샷 분석 실패: {}", e);
+            format!("종료 스크린샷 분석 실패: {}", e)
+        })?;
+    let mut end_data = ocr::parse_hunting_data(&end_text);
+
+    println!("[OCR] ========== 종료 스크린샷 (전체) ==========");
+    println!("[OCR] 텍스트:\n{}", end_text);
+    println!("[OCR] 파싱 결과:");
+    println!("  - 레벨: {:?}", end_data.level);
+    println!("  - 메소: {:?}", end_data.meso);
+
+    // 2. 솔 에르다 영역 크롭 OCR
+    println!("[OCR] 종료 스크린샷 - 솔 에르다 영역 분석...");
+    if let Ok((count, gauge, piece)) = ocr::extract_sol_erda_from_image(&end_image_path).await {
+        if count.is_some() { end_data.sol_erda_count = count; }
+        if gauge.is_some() { end_data.sol_erda_gauge = gauge; }
+        if piece.is_some() { end_data.sol_erda_piece = piece; }
+        println!("  - 솔 에르다 개수: {:?}", end_data.sol_erda_count);
+        println!("  - 솔 에르다 게이지: {:?}", end_data.sol_erda_gauge);
+        println!("  - 솔 에르다 조각: {:?}", end_data.sol_erda_piece);
+    }
+
+    // 3. 경험치 영역 크롭 OCR
+    println!("[OCR] 종료 스크린샷 - 경험치 영역 분석...");
+    if let Ok(exp) = ocr::extract_exp_from_image(&end_image_path).await {
+        if exp.is_some() { end_data.exp_percent = exp; }
+        println!("  - 경험치: {:?}", end_data.exp_percent);
+    }
+
+    // 사냥 결과 계산
+    let result = ocr::calculate_hunting_result(&start_data, &end_data)
+        .ok_or_else(|| "사냥 결과 계산 실패".to_string())?;
+
+    println!("[OCR] ========== 최종 결과 ==========");
+    println!("  - 레벨: {} -> {}", result.start_level, result.end_level);
+    println!("  - 경험치: {:.3}% -> {:.3}% (획득: {:.3}%)", result.start_exp_percent, result.end_exp_percent, result.exp_gained);
+    println!("  - 메소: {} -> {} (획득: {})", result.start_meso, result.end_meso, result.meso_gained);
+    println!("  - 솔 에르다: {}개 {}게이지 -> {}개 {}게이지 (획득: {:.3})",
+             result.start_sol_erda, result.start_sol_erda_gauge,
+             result.end_sol_erda, result.end_sol_erda_gauge, result.sol_erda_gained);
+    println!("  - 솔 에르다 조각: {} -> {} (획득: {})",
+             result.start_sol_erda_piece, result.end_sol_erda_piece, result.sol_erda_piece_gained);
+
+    Ok(result)
+}
+
+// OCR 텍스트만 추출 (디버그용)
+#[tauri::command]
+pub async fn extract_screenshot_text(image_path: String) -> Result<String, String> {
+    ocr::extract_text_from_image(&image_path)
+        .await
         .map_err(|e| e.to_string())
 }

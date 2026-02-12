@@ -51,6 +51,7 @@ pub struct HuntingSession {
     pub start_sol_erda_piece: i64,
     pub end_sol_erda_piece: i64,
     pub sol_erda_piece_gained: i64,
+    pub sol_erda_piece_price: i64, // 해당 사냥 시점의 조각 가격
     pub start_screenshot: Option<String>,
     pub end_screenshot: Option<String>,
     pub items: String, // JSON string
@@ -87,6 +88,35 @@ pub struct BossSetting {
     pub difficulty: String,
     pub party_size: i32,
     pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BossClear {
+    pub id: i64,
+    pub character_id: i64,
+    pub boss_id: String,
+    pub difficulty: String,
+    pub cleared_date: String,
+    pub week_start_date: String,
+    pub crystal_price: i64,
+    pub party_size: i32,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WeeklyBossSummary {
+    pub week_start_date: String,
+    pub total_crystal_income: i64,
+    pub boss_count: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AppSettings {
+    pub id: i64,
+    pub sol_erda_piece_price: i64, // 기본값: 6,500,000 (650만 메소)
+    pub screenshot_folder_path: Option<String>, // 스크린샷 폴더 경로
     pub created_at: String,
     pub updated_at: String,
 }
@@ -265,6 +295,70 @@ impl Database {
             [],
         )?;
 
+        // 보스 클리어 테이블
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS boss_clears (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id INTEGER NOT NULL,
+                boss_id TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                cleared_date TEXT NOT NULL,
+                week_start_date TEXT NOT NULL,
+                crystal_price INTEGER NOT NULL,
+                party_size INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (character_id) REFERENCES characters(id),
+                UNIQUE(character_id, boss_id, week_start_date)
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_boss_clears_week ON boss_clears(week_start_date)",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_boss_clears_date ON boss_clears(cleared_date)",
+            [],
+        )?;
+
+        // 앱 설정 테이블 (조각 가격 등)
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS app_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sol_erda_piece_price INTEGER NOT NULL DEFAULT 6500000,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+            [],
+        )?;
+
+        // 앱 설정이 없으면 기본값 삽입
+        let count: i32 = self.conn.query_row(
+            "SELECT COUNT(*) FROM app_settings",
+            [],
+            |row| row.get(0),
+        )?;
+        if count == 0 {
+            self.conn.execute(
+                "INSERT INTO app_settings (sol_erda_piece_price) VALUES (6500000)",
+                [],
+            )?;
+        }
+
+        // app_settings에 screenshot_folder_path 컬럼 추가 (마이그레이션)
+        let _ = self.conn.execute(
+            "ALTER TABLE app_settings ADD COLUMN screenshot_folder_path TEXT",
+            [],
+        );
+
+        // hunting_sessions에 sol_erda_piece_price 컬럼 추가 (마이그레이션)
+        let _ = self.conn.execute(
+            "ALTER TABLE hunting_sessions ADD COLUMN sol_erda_piece_price INTEGER NOT NULL DEFAULT 6500000",
+            [],
+        );
+
         Ok(())
     }
 
@@ -359,18 +453,18 @@ impl Database {
     }
 
     // Hunting Sessions
-    pub fn get_hunting_sessions(&self, date: &str) -> Result<Vec<HuntingSession>> {
+    pub fn get_hunting_sessions(&self, character_id: i64, date: &str) -> Result<Vec<HuntingSession>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, character_id, date, session_order, start_level, end_level,
                     start_exp_percent, end_exp_percent, exp_gained, start_meso, end_meso,
                     meso_gained, duration_minutes, sojaebi,
                     start_sol_erda, end_sol_erda, start_sol_erda_gauge, end_sol_erda_gauge, sol_erda_gained,
-                    start_sol_erda_piece, end_sol_erda_piece, sol_erda_piece_gained,
+                    start_sol_erda_piece, end_sol_erda_piece, sol_erda_piece_gained, sol_erda_piece_price,
                     start_screenshot, end_screenshot, items, memo, created_at, updated_at
-             FROM hunting_sessions WHERE date = ?1 ORDER BY session_order"
+             FROM hunting_sessions WHERE character_id = ?1 AND date = ?2 ORDER BY session_order"
         )?;
 
-        let sessions = stmt.query_map(params![date], |row| {
+        let sessions = stmt.query_map(params![character_id, date], |row| {
             Ok(HuntingSession {
                 id: row.get(0)?,
                 character_id: row.get(1)?,
@@ -394,12 +488,13 @@ impl Database {
                 start_sol_erda_piece: row.get(19)?,
                 end_sol_erda_piece: row.get(20)?,
                 sol_erda_piece_gained: row.get(21)?,
-                start_screenshot: row.get(22)?,
-                end_screenshot: row.get(23)?,
-                items: row.get(24)?,
-                memo: row.get(25)?,
-                created_at: row.get(26)?,
-                updated_at: row.get(27)?,
+                sol_erda_piece_price: row.get(22)?,
+                start_screenshot: row.get(23)?,
+                end_screenshot: row.get(24)?,
+                items: row.get(25)?,
+                memo: row.get(26)?,
+                created_at: row.get(27)?,
+                updated_at: row.get(28)?,
             })
         })?.collect::<Result<Vec<_>>>()?;
 
@@ -407,10 +502,10 @@ impl Database {
     }
 
     pub fn save_hunting_session(&self, session: &HuntingSession) -> Result<i64> {
-        // 해당 날짜의 마지막 session_order 조회
+        // 해당 캐릭터의 해당 날짜의 마지막 session_order 조회
         let next_order: i32 = self.conn.query_row(
-            "SELECT COALESCE(MAX(session_order), 0) + 1 FROM hunting_sessions WHERE date = ?1",
-            params![session.date],
+            "SELECT COALESCE(MAX(session_order), 0) + 1 FROM hunting_sessions WHERE character_id = ?1 AND date = ?2",
+            params![session.character_id, session.date],
             |row| row.get(0),
         )?;
 
@@ -419,16 +514,16 @@ impl Database {
                 start_exp_percent, end_exp_percent, exp_gained, start_meso, end_meso, meso_gained,
                 duration_minutes, sojaebi,
                 start_sol_erda, end_sol_erda, start_sol_erda_gauge, end_sol_erda_gauge, sol_erda_gained,
-                start_sol_erda_piece, end_sol_erda_piece, sol_erda_piece_gained,
+                start_sol_erda_piece, end_sol_erda_piece, sol_erda_piece_gained, sol_erda_piece_price,
                 start_screenshot, end_screenshot, items, memo)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 session.character_id, session.date, next_order, session.start_level, session.end_level,
                 session.start_exp_percent, session.end_exp_percent, session.exp_gained,
                 session.start_meso, session.end_meso, session.meso_gained,
                 session.duration_minutes, session.sojaebi,
                 session.start_sol_erda, session.end_sol_erda, session.start_sol_erda_gauge, session.end_sol_erda_gauge, session.sol_erda_gained,
-                session.start_sol_erda_piece, session.end_sol_erda_piece, session.sol_erda_piece_gained,
+                session.start_sol_erda_piece, session.end_sol_erda_piece, session.sol_erda_piece_gained, session.sol_erda_piece_price,
                 session.start_screenshot, session.end_screenshot, session.items, session.memo
             ],
         )?;
@@ -443,15 +538,15 @@ impl Database {
                 exp_gained = ?5, start_meso = ?6, end_meso = ?7, meso_gained = ?8,
                 duration_minutes = ?9, sojaebi = ?10,
                 start_sol_erda = ?11, end_sol_erda = ?12, start_sol_erda_gauge = ?13, end_sol_erda_gauge = ?14, sol_erda_gained = ?15,
-                start_sol_erda_piece = ?16, end_sol_erda_piece = ?17, sol_erda_piece_gained = ?18,
-                start_screenshot = ?19, end_screenshot = ?20, items = ?21, memo = ?22, updated_at = datetime('now')
-             WHERE id = ?23",
+                start_sol_erda_piece = ?16, end_sol_erda_piece = ?17, sol_erda_piece_gained = ?18, sol_erda_piece_price = ?19,
+                start_screenshot = ?20, end_screenshot = ?21, items = ?22, memo = ?23, updated_at = datetime('now')
+             WHERE id = ?24",
             params![
                 session.start_level, session.end_level, session.start_exp_percent, session.end_exp_percent,
                 session.exp_gained, session.start_meso, session.end_meso, session.meso_gained,
                 session.duration_minutes, session.sojaebi,
                 session.start_sol_erda, session.end_sol_erda, session.start_sol_erda_gauge, session.end_sol_erda_gauge, session.sol_erda_gained,
-                session.start_sol_erda_piece, session.end_sol_erda_piece, session.sol_erda_piece_gained,
+                session.start_sol_erda_piece, session.end_sol_erda_piece, session.sol_erda_piece_gained, session.sol_erda_piece_price,
                 session.start_screenshot, session.end_screenshot, session.items, session.memo, session.id
             ],
         )?;
@@ -463,7 +558,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_daily_totals(&self, year: i32, month: i32) -> Result<Vec<DailyTotal>> {
+    pub fn get_daily_totals(&self, character_id: i64, year: i32, month: i32) -> Result<Vec<DailyTotal>> {
         let start_date = format!("{:04}-{:02}-01", year, month);
         let end_date = format!("{:04}-{:02}-31", year, month);
 
@@ -474,12 +569,12 @@ impl Database {
                     SUM(sojaebi) as total_sojaebi,
                     COUNT(*) as session_count
              FROM hunting_sessions
-             WHERE date >= ?1 AND date <= ?2
+             WHERE character_id = ?1 AND date >= ?2 AND date <= ?3
              GROUP BY date
              ORDER BY date"
         )?;
 
-        let totals = stmt.query_map(params![start_date, end_date], |row| {
+        let totals = stmt.query_map(params![character_id, start_date, end_date], |row| {
             Ok(DailyTotal {
                 date: row.get(0)?,
                 total_exp_gained: row.get(1)?,
@@ -545,7 +640,7 @@ impl Database {
                     start_exp_percent, end_exp_percent, exp_gained, start_meso, end_meso,
                     meso_gained, duration_minutes, sojaebi,
                     start_sol_erda, end_sol_erda, start_sol_erda_gauge, end_sol_erda_gauge, sol_erda_gained,
-                    start_sol_erda_piece, end_sol_erda_piece, sol_erda_piece_gained,
+                    start_sol_erda_piece, end_sol_erda_piece, sol_erda_piece_gained, sol_erda_piece_price,
                     start_screenshot, end_screenshot, items, memo, created_at, updated_at
              FROM hunting_sessions ORDER BY date, session_order"
         )?;
@@ -574,12 +669,13 @@ impl Database {
                 start_sol_erda_piece: row.get(19)?,
                 end_sol_erda_piece: row.get(20)?,
                 sol_erda_piece_gained: row.get(21)?,
-                start_screenshot: row.get(22)?,
-                end_screenshot: row.get(23)?,
-                items: row.get(24)?,
-                memo: row.get(25)?,
-                created_at: row.get(26)?,
-                updated_at: row.get(27)?,
+                sol_erda_piece_price: row.get(22)?,
+                start_screenshot: row.get(23)?,
+                end_screenshot: row.get(24)?,
+                items: row.get(25)?,
+                memo: row.get(26)?,
+                created_at: row.get(27)?,
+                updated_at: row.get(28)?,
             })
         })?.collect::<Result<Vec<_>>>()?;
 
@@ -654,6 +750,7 @@ impl Database {
                     start_sol_erda_piece: session_data.get("start_sol_erda_piece").and_then(|v| v.as_i64()).unwrap_or(0),
                     end_sol_erda_piece: session_data.get("end_sol_erda_piece").and_then(|v| v.as_i64()).unwrap_or(0),
                     sol_erda_piece_gained: session_data.get("sol_erda_piece_gained").and_then(|v| v.as_i64()).unwrap_or(0),
+                    sol_erda_piece_price: session_data.get("sol_erda_piece_price").and_then(|v| v.as_i64()).unwrap_or(6500000),
                     start_screenshot: session_data.get("start_screenshot").and_then(|v| v.as_str()).map(|s| s.to_string()),
                     end_screenshot: session_data.get("end_screenshot").and_then(|v| v.as_str()).map(|s| s.to_string()),
                     items: session_data.get("items").and_then(|v| v.as_str()).unwrap_or("[]").to_string(),
@@ -737,5 +834,278 @@ impl Database {
             params![party_size, character_id, boss_id, difficulty],
         )?;
         Ok(())
+    }
+
+    // Boss Clears
+    // 목요일 기준 주간 시작일 계산
+    pub fn get_week_start_date(date: &str) -> String {
+        use chrono::{NaiveDate, Datelike};
+
+        let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap_or_else(|_| {
+            chrono::Local::now().date_naive()
+        });
+
+        // 목요일 = 3 (월=0, 화=1, 수=2, 목=3, 금=4, 토=5, 일=6)
+        let weekday = parsed.weekday().num_days_from_monday();
+        let days_since_thursday = if weekday >= 3 {
+            weekday - 3
+        } else {
+            weekday + 4 // 월화수는 이전 주 목요일
+        };
+
+        let week_start = parsed - chrono::Duration::days(days_since_thursday as i64);
+        week_start.format("%Y-%m-%d").to_string()
+    }
+
+    // 월초 날짜 계산 (월간 보스용)
+    pub fn get_month_start_date(date: &str) -> String {
+        use chrono::{NaiveDate, Datelike};
+
+        let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap_or_else(|_| {
+            chrono::Local::now().date_naive()
+        });
+
+        // 해당 월의 1일로 설정
+        let month_start = NaiveDate::from_ymd_opt(parsed.year(), parsed.month(), 1)
+            .unwrap_or(parsed);
+        month_start.format("%Y-%m-%d").to_string()
+    }
+
+    pub fn save_boss_clear(&self, clear: &BossClear, is_monthly: bool) -> Result<i64> {
+        let period_start = if is_monthly {
+            Self::get_month_start_date(&clear.cleared_date)
+        } else {
+            Self::get_week_start_date(&clear.cleared_date)
+        };
+
+        self.conn.execute(
+            "INSERT INTO boss_clears (character_id, boss_id, difficulty, cleared_date, week_start_date, crystal_price, party_size)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(character_id, boss_id, week_start_date) DO UPDATE SET
+                difficulty = excluded.difficulty,
+                cleared_date = excluded.cleared_date,
+                crystal_price = excluded.crystal_price,
+                party_size = excluded.party_size",
+            params![
+                clear.character_id,
+                clear.boss_id,
+                clear.difficulty,
+                clear.cleared_date,
+                period_start,
+                clear.crystal_price,
+                clear.party_size
+            ],
+        )?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn delete_boss_clear(&self, character_id: i64, boss_id: &str, week_start_date: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM boss_clears WHERE character_id = ?1 AND boss_id = ?2 AND week_start_date = ?3",
+            params![character_id, boss_id, week_start_date],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_boss_clears_by_week(&self, character_id: i64, week_start_date: &str) -> Result<Vec<BossClear>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, character_id, boss_id, difficulty, cleared_date, week_start_date, crystal_price, party_size, created_at
+             FROM boss_clears
+             WHERE character_id = ?1 AND week_start_date = ?2
+             ORDER BY cleared_date"
+        )?;
+
+        let clears = stmt.query_map(params![character_id, week_start_date], |row| {
+            Ok(BossClear {
+                id: row.get(0)?,
+                character_id: row.get(1)?,
+                boss_id: row.get(2)?,
+                difficulty: row.get(3)?,
+                cleared_date: row.get(4)?,
+                week_start_date: row.get(5)?,
+                crystal_price: row.get(6)?,
+                party_size: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+
+        Ok(clears)
+    }
+
+    pub fn get_boss_clears_by_date(&self, character_id: i64, date: &str) -> Result<Vec<BossClear>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, character_id, boss_id, difficulty, cleared_date, week_start_date, crystal_price, party_size, created_at
+             FROM boss_clears
+             WHERE character_id = ?1 AND cleared_date = ?2
+             ORDER BY boss_id"
+        )?;
+
+        let clears = stmt.query_map(params![character_id, date], |row| {
+            Ok(BossClear {
+                id: row.get(0)?,
+                character_id: row.get(1)?,
+                boss_id: row.get(2)?,
+                difficulty: row.get(3)?,
+                cleared_date: row.get(4)?,
+                week_start_date: row.get(5)?,
+                crystal_price: row.get(6)?,
+                party_size: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+
+        Ok(clears)
+    }
+
+    pub fn get_weekly_boss_summary(&self, character_id: i64, week_start_date: &str) -> Result<WeeklyBossSummary> {
+        let result = self.conn.query_row(
+            "SELECT week_start_date,
+                    COALESCE(SUM(crystal_price / party_size), 0) as total_income,
+                    COUNT(*) as boss_count
+             FROM boss_clears
+             WHERE character_id = ?1 AND week_start_date = ?2
+             GROUP BY week_start_date",
+            params![character_id, week_start_date],
+            |row| {
+                Ok(WeeklyBossSummary {
+                    week_start_date: row.get(0)?,
+                    total_crystal_income: row.get(1)?,
+                    boss_count: row.get(2)?,
+                })
+            }
+        );
+
+        match result {
+            Ok(summary) => Ok(summary),
+            Err(_) => Ok(WeeklyBossSummary {
+                week_start_date: week_start_date.to_string(),
+                total_crystal_income: 0,
+                boss_count: 0,
+            })
+        }
+    }
+
+    pub fn get_daily_boss_income(&self, character_id: i64, date: &str) -> Result<i64> {
+        let result = self.conn.query_row(
+            "SELECT COALESCE(SUM(crystal_price / party_size), 0)
+             FROM boss_clears
+             WHERE character_id = ?1 AND cleared_date = ?2",
+            params![character_id, date],
+            |row| row.get(0)
+        );
+
+        match result {
+            Ok(income) => Ok(income),
+            Err(_) => Ok(0)
+        }
+    }
+
+    // 월별 보스 클리어 요약 (달력용)
+    pub fn get_monthly_boss_clears(&self, character_id: i64, year: i32, month: i32) -> Result<Vec<BossClear>> {
+        let start_date = format!("{:04}-{:02}-01", year, month);
+        let end_date = format!("{:04}-{:02}-31", year, month);
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, character_id, boss_id, difficulty, cleared_date, week_start_date, crystal_price, party_size, created_at
+             FROM boss_clears
+             WHERE character_id = ?1 AND cleared_date >= ?2 AND cleared_date <= ?3
+             ORDER BY cleared_date, boss_id"
+        )?;
+
+        let clears = stmt.query_map(params![character_id, start_date, end_date], |row| {
+            Ok(BossClear {
+                id: row.get(0)?,
+                character_id: row.get(1)?,
+                boss_id: row.get(2)?,
+                difficulty: row.get(3)?,
+                cleared_date: row.get(4)?,
+                week_start_date: row.get(5)?,
+                crystal_price: row.get(6)?,
+                party_size: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+
+        Ok(clears)
+    }
+
+    // App Settings (조각 가격 등)
+    pub fn get_app_settings(&self) -> Result<AppSettings> {
+        let result = self.conn.query_row(
+            "SELECT id, sol_erda_piece_price, screenshot_folder_path, created_at, updated_at FROM app_settings ORDER BY id DESC LIMIT 1",
+            [],
+            |row| {
+                Ok(AppSettings {
+                    id: row.get(0)?,
+                    sol_erda_piece_price: row.get(1)?,
+                    screenshot_folder_path: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            }
+        );
+
+        match result {
+            Ok(settings) => Ok(settings),
+            Err(_) => Ok(AppSettings {
+                id: 0,
+                sol_erda_piece_price: 6500000, // 기본값 650만 메소
+                screenshot_folder_path: None,
+                created_at: String::new(),
+                updated_at: String::new(),
+            })
+        }
+    }
+
+    pub fn save_app_settings(&self, sol_erda_piece_price: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE app_settings SET sol_erda_piece_price = ?1, updated_at = datetime('now') WHERE id = 1",
+            params![sol_erda_piece_price],
+        )?;
+        Ok(())
+    }
+
+    pub fn save_screenshot_folder_path(&self, path: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE app_settings SET screenshot_folder_path = ?1, updated_at = datetime('now') WHERE id = 1",
+            params![path],
+        )?;
+        Ok(())
+    }
+
+    // 일별 합계 (조각 포함)
+    pub fn get_daily_totals_with_pieces(&self, character_id: i64, year: i32, month: i32) -> Result<Vec<(DailyTotal, i64, i64)>> {
+        let start_date = format!("{:04}-{:02}-01", year, month);
+        let end_date = format!("{:04}-{:02}-31", year, month);
+
+        let mut stmt = self.conn.prepare(
+            "SELECT date,
+                    SUM(exp_gained) as total_exp,
+                    SUM(meso_gained) as total_meso,
+                    SUM(sojaebi) as total_sojaebi,
+                    COUNT(*) as session_count,
+                    SUM(sol_erda_piece_gained) as total_pieces,
+                    CAST(COALESCE(AVG(sol_erda_piece_price), 6500000) AS INTEGER) as avg_piece_price
+             FROM hunting_sessions
+             WHERE character_id = ?1 AND date >= ?2 AND date <= ?3
+             GROUP BY date
+             ORDER BY date"
+        )?;
+
+        let totals = stmt.query_map(params![character_id, start_date, end_date], |row| {
+            let daily = DailyTotal {
+                date: row.get(0)?,
+                total_exp_gained: row.get(1)?,
+                total_meso_gained: row.get(2)?,
+                total_sojaebi: row.get(3)?,
+                session_count: row.get(4)?,
+            };
+            let total_pieces: i64 = row.get(5)?;
+            let avg_piece_price: i64 = row.get(6)?;
+            Ok((daily, total_pieces, avg_piece_price))
+        })?.collect::<Result<Vec<_>>>()?;
+
+        Ok(totals)
     }
 }

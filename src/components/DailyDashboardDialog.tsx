@@ -7,9 +7,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Sword, ScrollText, Crown, TrendingUp, Coins, Star } from "lucide-react";
-import type { DailyTotal, Character } from "@/types";
+import { Sword, ScrollText, Crown, Star } from "lucide-react";
+import type { DailyTotal, Character, BossSetting, BossClear, HuntingSession, HuntingOcrResult } from "@/types";
 import { HuntingDialog } from "./HuntingDialog";
+import { BossClearDialog } from "./BossClearDialog";
+import { ScreenshotRecognitionDialog } from "./ScreenshotRecognitionDialog";
+import { formatMeso } from "@/data/bossData";
+import { formatExpWithPercent } from "@/data/expTable";
 
 interface DailyDashboardDialogProps {
   open: boolean;
@@ -27,8 +31,16 @@ export function DailyDashboardDialog({
   onDataChanged,
 }: DailyDashboardDialogProps) {
   const [dailyTotal, setDailyTotal] = useState<DailyTotal | null>(null);
+  const [huntingSessions, setHuntingSessions] = useState<HuntingSession[]>([]);
+  const [showScreenshotDialog, setShowScreenshotDialog] = useState(false);
   const [showHuntingDialog, setShowHuntingDialog] = useState(false);
+  const [showBossDialog, setShowBossDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasBossSettings, setHasBossSettings] = useState(false);
+  const [todayBossClears, setTodayBossClears] = useState<BossClear[]>([]);
+  // OCR 결과 저장
+  const [ocrResult, setOcrResult] = useState<HuntingOcrResult | null>(null);
+  const [screenshotPaths, setScreenshotPaths] = useState<{ start: string; end: string } | null>(null);
 
   useEffect(() => {
     if (open && date) {
@@ -40,12 +52,35 @@ export function DailyDashboardDialog({
     setIsLoading(true);
     try {
       const [year, month] = date.split("-").map(Number);
+
+      // 일일 통계 로드
       const totals = await invoke<DailyTotal[]>("get_daily_totals", {
+        characterId: character.id,
         year,
         month,
       });
       const todayTotal = totals.find((t) => t.date === date);
       setDailyTotal(todayTotal || null);
+
+      // 보스 설정 확인
+      const bossSettings = await invoke<BossSetting[]>("get_boss_settings", {
+        characterId: character.id,
+      });
+      setHasBossSettings(bossSettings.some((s) => s.enabled));
+
+      // 오늘 보스 클리어 로드
+      const clears = await invoke<BossClear[]>("get_boss_clears_by_date", {
+        characterId: character.id,
+        date,
+      });
+      setTodayBossClears(clears);
+
+      // 사냥 세션 로드 (솔 에르다 정보용)
+      const sessions = await invoke<HuntingSession[]>("get_hunting_sessions", {
+        characterId: character.id,
+        date,
+      });
+      setHuntingSessions(sessions);
     } catch (error) {
       console.error("Failed to load daily data:", error);
     } finally {
@@ -54,6 +89,14 @@ export function DailyDashboardDialog({
   }
 
   function handleHuntingSaved() {
+    loadDailyData();
+    onDataChanged();
+    // OCR 결과 초기화
+    setOcrResult(null);
+    setScreenshotPaths(null);
+  }
+
+  function handleBossDataChanged() {
     loadDailyData();
     onDataChanged();
   }
@@ -66,112 +109,171 @@ export function DailyDashboardDialog({
   // 레벨업 여부 확인 (경험치 100% 이상 획득 시)
   const hasLevelUp = dailyTotal && dailyTotal.total_exp_gained >= 100;
 
+  // 오늘 보스 수익 계산
+  const todayBossIncome = todayBossClears.reduce((total, clear) => {
+    return total + Math.floor(clear.crystal_price / clear.party_size);
+  }, 0);
+
+  // 솔 에르다 합계 계산
+  const totalSolErda = huntingSessions.reduce((total, session) => {
+    return total + session.sol_erda_gained;
+  }, 0);
+
+  // 솔 에르다 조각 합계 계산
+  const totalSolErdaPiece = huntingSessions.reduce((total, session) => {
+    return total + session.sol_erda_piece_gained;
+  }, 0);
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{formatDate(date)}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="text-2xl">📅</span>
+              {formatDate(date)}
+            </DialogTitle>
           </DialogHeader>
 
           {/* Action Buttons */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-3">
             <Button
               variant="outline"
-              className="flex-col h-auto py-3 gap-1.5"
+              className="flex-col h-auto py-3 gap-1.5 rounded-xl border-2 cursor-not-allowed opacity-50"
               disabled
             >
-              <ScrollText className="h-5 w-5" />
-              <span className="text-xs">피드</span>
+              <ScrollText className="h-5 w-5 text-muted-foreground" />
+              <span className="text-xs font-semibold">피드</span>
             </Button>
             <Button
               variant="default"
-              className="flex-col h-auto py-3 gap-1.5"
-              onClick={() => setShowHuntingDialog(true)}
+              className="flex-col h-auto py-3 gap-1.5 rounded-xl shadow-lg hover:scale-105 hover:shadow-xl transition-all duration-200"
+              onClick={() => setShowScreenshotDialog(true)}
             >
               <Sword className="h-5 w-5" />
-              <span className="text-xs">사냥</span>
+              <span className="text-xs font-semibold">사냥</span>
             </Button>
             <Button
-              variant="outline"
-              className="flex-col h-auto py-3 gap-1.5"
-              disabled
+              variant="default"
+              className={
+                hasBossSettings
+                  ? "flex-col h-auto py-3 gap-1.5 rounded-xl shadow-lg hover:scale-105 hover:shadow-xl transition-all duration-200"
+                  : "flex-col h-auto py-3 gap-1.5 rounded-xl border-2 cursor-not-allowed opacity-50"
+              }
+              onClick={() => setShowBossDialog(true)}
+              disabled={!hasBossSettings}
             >
-              <Crown className="h-5 w-5" />
-              <span className="text-xs">보스</span>
+              <Crown className={hasBossSettings ? "h-5 w-5" : "h-5 w-5 text-muted-foreground"} />
+              <span className="text-xs font-semibold">보스</span>
             </Button>
           </div>
 
           {/* Dashboard Content */}
           {isLoading ? (
-            <div className="py-8 text-center text-muted-foreground">
-              로딩 중...
+            <div className="py-12 text-center">
+              <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-primary border-r-transparent" />
+              <p className="mt-3 text-sm text-muted-foreground font-medium">로딩 중...</p>
             </div>
-          ) : dailyTotal ? (
+          ) : (dailyTotal || todayBossClears.length > 0) ? (
             <div className="space-y-4">
               {/* Level Up Celebration */}
               {hasLevelUp && (
-                <div className="rounded-lg bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 p-4 text-center">
-                  <div className="flex items-center justify-center gap-2 mb-1">
-                    <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
-                    <span className="font-bold text-lg">레벨 업!</span>
-                    <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                <div className="rounded-2xl bg-gradient-to-r from-yellow-500/20 via-orange-500/20 to-yellow-500/20 border-2 border-yellow-500/40 p-5 text-center animate-pulse-subtle">
+                  <div className="flex items-center justify-center gap-3 mb-2">
+                    <Star className="h-6 w-6 text-yellow-500 fill-yellow-500" />
+                    <span className="font-bold text-xl bg-gradient-to-r from-yellow-600 to-orange-600 bg-clip-text text-transparent">레벨 업!</span>
+                    <Star className="h-6 w-6 text-yellow-500 fill-yellow-500" />
                   </div>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground font-medium">
                     축하합니다! 오늘 레벨업에 성공했습니다!
                   </p>
                 </div>
               )}
 
               {/* Stats Grid */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 {/* Exp Gained */}
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                    <TrendingUp className="h-4 w-4" />
-                    <span className="text-xs">획득 경험치</span>
+                <div className="rounded-xl border-2 border-green-500/20 bg-gradient-to-br from-green-500/5 to-green-500/10 p-2.5">
+                  <div className="flex items-center gap-1.5 text-green-600 dark:text-green-400 mb-1">
+                    <img src="/images/icons/경험치.png" alt="" className="w-3.5 h-3.5" />
+                    <span className="text-[11px] font-semibold">획득 경험치</span>
                   </div>
-                  <p className="text-xl font-bold text-green-600 dark:text-green-400">
-                    +{dailyTotal.total_exp_gained.toFixed(2)}%
+                  <p className="text-sm font-bold text-green-600 dark:text-green-400">
+                    {formatExpWithPercent(character.character_level, dailyTotal?.total_exp_gained ?? 0)}
                   </p>
                 </div>
 
                 {/* Meso Gained */}
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                    <Coins className="h-4 w-4" />
-                    <span className="text-xs">획득 메소</span>
+                <div className="rounded-xl border-2 border-amber-500/20 bg-gradient-to-br from-amber-500/5 to-amber-500/10 p-2.5">
+                  <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 mb-1">
+                    <img src="/images/icons/메소.png" alt="" className="w-3.5 h-3.5" />
+                    <span className="text-[11px] font-semibold">획득 메소</span>
                   </div>
-                  <p className="text-xl font-bold">
-                    +{dailyTotal.total_meso_gained.toLocaleString()}
+                  <p className="text-base font-bold text-amber-600 dark:text-amber-400">
+                    +{formatMeso(dailyTotal?.total_meso_gained ?? 0)}
                   </p>
                 </div>
 
-                {/* Sojaebi */}
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                    <Sword className="h-4 w-4" />
-                    <span className="text-xs">총 소재비</span>
+                {/* Sojaebi with Session Count */}
+                <div className="rounded-xl border-2 border-orange-500/20 bg-gradient-to-br from-orange-500/5 to-orange-500/10 p-2.5">
+                  <div className="flex items-center gap-1.5 text-orange-600 dark:text-orange-400 mb-1">
+                    <img src="/images/icons/재획비.png" alt="" className="w-3.5 h-3.5" />
+                    <span className="text-[11px] font-semibold">
+                      총 소재비 ({dailyTotal?.session_count ?? 0}회)
+                    </span>
                   </div>
-                  <p className="text-xl font-bold text-orange-600 dark:text-orange-400">
-                    {dailyTotal.total_sojaebi.toFixed(1)}
+                  <p className="text-base font-bold text-orange-600 dark:text-orange-400">
+                    {Math.round(dailyTotal?.total_sojaebi ?? 0)}
                   </p>
                 </div>
 
-                {/* Session Count */}
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                    <span className="text-xs">사냥 횟수</span>
+                {/* Sol Erda */}
+                <div className="rounded-xl border-2 border-sky-500/20 bg-gradient-to-br from-sky-500/5 to-sky-500/10 p-2.5">
+                  <div className="flex items-center gap-1.5 text-sky-600 dark:text-sky-400 mb-1">
+                    <img src="/images/icons/솔에르다.png" alt="" className="w-3.5 h-3.5" />
+                    <span className="text-[11px] font-semibold">솔 에르다</span>
                   </div>
-                  <p className="text-xl font-bold">
-                    {dailyTotal.session_count}회
+                  <p className="text-base font-bold text-sky-600 dark:text-sky-400">
+                    +{totalSolErda.toFixed(2)}
+                  </p>
+                </div>
+
+                {/* Sol Erda Piece */}
+                <div className="rounded-xl border-2 border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-violet-500/10 p-2.5">
+                  <div className="flex items-center gap-1.5 text-violet-600 dark:text-violet-400 mb-1">
+                    <img src="/images/icons/솔에르다조각.png" alt="" className="w-3.5 h-3.5" />
+                    <span className="text-[11px] font-semibold">솔 에르다 조각</span>
+                  </div>
+                  <p className="text-base font-bold text-violet-600 dark:text-violet-400">
+                    +{totalSolErdaPiece.toLocaleString()}
                   </p>
                 </div>
               </div>
+
+              {/* Boss Clear Summary */}
+              {todayBossClears.length > 0 && (
+                <div className="rounded-xl border-2 border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-purple-500/10 p-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400">
+                      <img src="/images/icons/주간결정석.png" alt="" className="w-3.5 h-3.5" />
+                      <span className="text-[11px] font-semibold">보스 클리어</span>
+                    </div>
+                    <span className="text-xs font-medium text-purple-600 dark:text-purple-400">
+                      {todayBossClears.length}마리
+                    </span>
+                  </div>
+                  <p className="text-base font-bold text-purple-600 dark:text-purple-400 mt-1">
+                    +{formatMeso(todayBossIncome)}
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="py-8 text-center">
-              <p className="text-muted-foreground mb-2">아직 기록이 없습니다</p>
+            <div className="py-12 text-center">
+              <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-muted/50 mb-4">
+                <Sword className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <p className="font-semibold text-foreground mb-1">아직 기록이 없습니다</p>
               <p className="text-sm text-muted-foreground">
                 사냥 버튼을 눌러 기록을 추가해보세요!
               </p>
@@ -180,13 +282,52 @@ export function DailyDashboardDialog({
         </DialogContent>
       </Dialog>
 
+      {/* Screenshot Recognition Dialog */}
+      <ScreenshotRecognitionDialog
+        open={showScreenshotDialog}
+        onOpenChange={setShowScreenshotDialog}
+        date={date}
+        characterId={character.id}
+        characterLevel={character.character_level}
+        onManualInput={() => {
+          setShowScreenshotDialog(false);
+          setOcrResult(null);
+          setScreenshotPaths(null);
+          setShowHuntingDialog(true);
+        }}
+        onOcrAnalyzed={(result, startPath, endPath) => {
+          setShowScreenshotDialog(false);
+          setOcrResult(result);
+          setScreenshotPaths({ start: startPath, end: endPath });
+          setShowHuntingDialog(true);
+        }}
+      />
+
       {/* Hunting Dialog */}
       <HuntingDialog
         open={showHuntingDialog}
-        onOpenChange={setShowHuntingDialog}
+        onOpenChange={(open) => {
+          setShowHuntingDialog(open);
+          if (!open) {
+            setOcrResult(null);
+            setScreenshotPaths(null);
+          }
+        }}
         date={date}
         characterId={character.id}
+        characterLevel={character.character_level}
         onSaved={handleHuntingSaved}
+        ocrResult={ocrResult}
+        screenshotPaths={screenshotPaths}
+      />
+
+      {/* Boss Clear Dialog */}
+      <BossClearDialog
+        open={showBossDialog}
+        onOpenChange={setShowBossDialog}
+        date={date}
+        character={character}
+        onDataChanged={handleBossDataChanged}
       />
     </>
   );

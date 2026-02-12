@@ -49,6 +49,7 @@ export interface HuntingSession {
   start_sol_erda_piece: number;
   end_sol_erda_piece: number;
   sol_erda_piece_gained: number;
+  sol_erda_piece_price: number; // 해당 사냥 시점의 조각 가격
   start_screenshot?: string;
   end_screenshot?: string;
   items: string;
@@ -113,4 +114,82 @@ export interface BossSetting {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+}
+
+// 보스 클리어 기록 (백엔드 응답과 일치)
+export interface BossClear {
+  id: number;
+  character_id: number;
+  boss_id: string;
+  difficulty: string;
+  cleared_date: string;
+  week_start_date: string;
+  crystal_price: number;
+  party_size: number;
+  created_at: string;
+}
+
+// 주간 보스 요약
+export interface WeeklyBossSummary {
+  week_start_date: string;
+  total_crystal_income: number;
+  boss_count: number;
+}
+
+// 앱 설정 (조각 가격 등)
+export interface AppSettings {
+  id: number;
+  sol_erda_piece_price: number;
+  screenshot_folder_path?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// 스크린샷 파일 정보
+export interface ScreenshotFile {
+  name: string;
+  path: string;
+  timestamp: Date;
+  displayTime: string;  // "16:49:26"
+}
+
+// 일별 집계 (조각 포함)
+export interface DailyTotalWithPieces {
+  date: string;
+  total_exp_gained: number;
+  total_meso_gained: number;
+  total_sojaebi: number;
+  session_count: number;
+  total_pieces: number;
+  avg_piece_price: number;
+}
+
+// OCR 스크린샷 데이터
+export interface HuntingScreenshotData {
+  level: number | null;
+  exp_percent: number | null;
+  meso: number | null;
+  sol_erda_count: number | null;
+  sol_erda_gauge: number | null;
+  sol_erda_piece: number | null;
+}
+
+// OCR 사냥 결과
+export interface HuntingOcrResult {
+  start_level: number;
+  end_level: number;
+  start_exp_percent: number;
+  end_exp_percent: number;
+  exp_gained: number;
+  start_meso: number;
+  end_meso: number;
+  meso_gained: number;
+  start_sol_erda: number;
+  end_sol_erda: number;
+  start_sol_erda_gauge: number;
+  end_sol_erda_gauge: number;
+  sol_erda_gained: number;
+  start_sol_erda_piece: number;
+  end_sol_erda_piece: number;
+  sol_erda_piece_gained: number;
 }

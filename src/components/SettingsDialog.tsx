@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
@@ -20,8 +20,10 @@ import {
   Trash2,
   Search,
   Check,
+  FolderOpen,
+  X,
 } from "lucide-react";
-import type { Character, SearchCharacterResult } from "@/types";
+import type { Character, SearchCharacterResult, AppSettings } from "@/types";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -41,6 +43,48 @@ export function SettingsDialog({
   const [searchName, setSearchName] = useState("");
   const [searchResult, setSearchResult] = useState<SearchCharacterResult | null>(null);
   const [searchError, setSearchError] = useState("");
+  const [screenshotFolder, setScreenshotFolder] = useState<string | null>(null);
+
+  // 설정 로드
+  useEffect(() => {
+    if (open) {
+      loadAppSettings();
+    }
+  }, [open]);
+
+  async function loadAppSettings() {
+    try {
+      const settings = await invoke<AppSettings>("get_app_settings");
+      setScreenshotFolder(settings.screenshot_folder_path || null);
+    } catch (error) {
+      console.error("Failed to load app settings:", error);
+    }
+  }
+
+  async function handleSelectScreenshotFolder() {
+    try {
+      const folderPath = await openDialog({
+        title: "스크린샷 폴더 선택",
+        directory: true,
+      });
+
+      if (folderPath) {
+        await invoke("save_screenshot_folder_path", { path: folderPath });
+        setScreenshotFolder(folderPath as string);
+      }
+    } catch (error) {
+      console.error("Failed to select folder:", error);
+    }
+  }
+
+  async function handleClearScreenshotFolder() {
+    try {
+      await invoke("save_screenshot_folder_path", { path: null });
+      setScreenshotFolder(null);
+    } catch (error) {
+      console.error("Failed to clear folder:", error);
+    }
+  }
 
   function handleClose(isOpen: boolean) {
     if (!isOpen) {
@@ -176,7 +220,8 @@ export function SettingsDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <span className="text-2xl">{view === "main" ? "⚙️" : "👤"}</span>
             {view === "main" ? "설정" : "캐릭터 변경"}
           </DialogTitle>
           <DialogDescription>
@@ -190,27 +235,62 @@ export function SettingsDialog({
           <div className="space-y-3">
             <Button
               variant="outline"
-              className="w-full justify-start gap-3 h-auto py-3"
+              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-primary/30 hover:bg-primary/5 transition-all"
               onClick={() => setView("change-character")}
             >
-              <UserCog className="h-5 w-5" />
+              <div className="p-2 rounded-lg bg-primary/10">
+                <UserCog className="h-5 w-5 text-primary" />
+              </div>
               <div className="text-left">
-                <p className="font-medium">캐릭터 변경</p>
+                <p className="font-semibold">캐릭터 변경</p>
                 <p className="text-xs text-muted-foreground">
                   다른 캐릭터로 전환합니다
                 </p>
               </div>
             </Button>
 
+            <div className="relative">
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-cyan-500/30 hover:bg-cyan-500/5 transition-all"
+                onClick={handleSelectScreenshotFolder}
+              >
+                <div className="p-2 rounded-lg bg-cyan-500/10">
+                  <FolderOpen className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+                </div>
+                <div className="text-left flex-1 min-w-0">
+                  <p className="font-semibold">스크린샷 폴더</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {screenshotFolder || "폴더를 선택해주세요"}
+                  </p>
+                </div>
+              </Button>
+              {screenshotFolder && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-lg hover:bg-destructive/10"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClearScreenshotFolder();
+                  }}
+                >
+                  <X className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                </Button>
+              )}
+            </div>
+
             <Button
               variant="outline"
-              className="w-full justify-start gap-3 h-auto py-3"
+              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-green-500/30 hover:bg-green-500/5 transition-all"
               onClick={handleBackup}
               disabled={isLoading}
             >
-              <Download className="h-5 w-5" />
+              <div className="p-2 rounded-lg bg-green-500/10">
+                <Download className="h-5 w-5 text-green-600 dark:text-green-400" />
+              </div>
               <div className="text-left">
-                <p className="font-medium">데이터 백업</p>
+                <p className="font-semibold">데이터 백업</p>
                 <p className="text-xs text-muted-foreground">
                   모든 기록을 파일로 저장합니다
                 </p>
@@ -219,13 +299,15 @@ export function SettingsDialog({
 
             <Button
               variant="outline"
-              className="w-full justify-start gap-3 h-auto py-3"
+              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-blue-500/30 hover:bg-blue-500/5 transition-all"
               onClick={handleRestore}
               disabled={isLoading}
             >
-              <Upload className="h-5 w-5" />
+              <div className="p-2 rounded-lg bg-blue-500/10">
+                <Upload className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              </div>
               <div className="text-left">
-                <p className="font-medium">데이터 불러오기</p>
+                <p className="font-semibold">데이터 불러오기</p>
                 <p className="text-xs text-muted-foreground">
                   백업 파일에서 데이터를 복원합니다
                 </p>
@@ -234,13 +316,15 @@ export function SettingsDialog({
 
             <Button
               variant="outline"
-              className="w-full justify-start gap-3 h-auto py-3 text-destructive hover:text-destructive"
+              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-destructive/30 hover:bg-destructive/5 transition-all group"
               onClick={handleReset}
               disabled={isLoading}
             >
-              <Trash2 className="h-5 w-5" />
+              <div className="p-2 rounded-lg bg-destructive/10">
+                <Trash2 className="h-5 w-5 text-destructive" />
+              </div>
               <div className="text-left">
-                <p className="font-medium">데이터 초기화</p>
+                <p className="font-semibold text-destructive">데이터 초기화</p>
                 <p className="text-xs text-muted-foreground">
                   모든 데이터를 삭제합니다
                 </p>
@@ -248,17 +332,18 @@ export function SettingsDialog({
             </Button>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>캐릭터 닉네임</Label>
-              <div className="flex gap-2">
+          <div className="space-y-5">
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">캐릭터 닉네임</Label>
+              <div className="flex gap-3">
                 <Input
-                  placeholder="닉네임 입력"
+                  placeholder="닉네임을 입력하세요"
                   value={searchName}
                   onChange={(e) => setSearchName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSearchCharacter()}
+                  className="flex-1"
                 />
-                <Button onClick={handleSearchCharacter} disabled={isLoading}>
+                <Button onClick={handleSearchCharacter} disabled={isLoading} className="rounded-xl px-5">
                   {isLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
@@ -269,34 +354,34 @@ export function SettingsDialog({
             </div>
 
             {searchError && (
-              <p className="text-sm text-destructive">{searchError}</p>
+              <p className="text-sm text-destructive font-medium p-3 rounded-lg bg-destructive/10">{searchError}</p>
             )}
 
             {searchResult && (
-              <div className="rounded-lg border bg-card p-4">
-                <div className="flex items-center gap-3">
+              <div className="rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-5">
+                <div className="flex items-center gap-4">
                   <img
                     src={searchResult.character_image}
                     alt={searchResult.character_name}
-                    className="h-16 w-16 rounded-lg bg-muted object-contain"
+                    className="h-20 w-20 rounded-xl bg-background object-contain shadow-sm ring-2 ring-border/40"
                   />
                   <div className="flex-1">
-                    <h3 className="font-semibold">
+                    <h3 className="font-bold text-lg">
                       {searchResult.character_name}
                     </h3>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-muted-foreground font-medium">
                       {searchResult.world_name} · {searchResult.character_class}
                     </p>
-                    <p className="text-sm">
+                    <p className="text-sm font-semibold mt-1">
                       Lv.{searchResult.character_level}
-                      <span className="text-primary ml-1">
+                      <span className="text-primary ml-2">
                         ({searchResult.character_exp_rate})
                       </span>
                     </p>
                   </div>
                 </div>
                 <Button
-                  className="w-full mt-3"
+                  className="w-full mt-4 h-11 rounded-xl"
                   onClick={handleChangeCharacter}
                   disabled={isLoading}
                 >
@@ -312,7 +397,7 @@ export function SettingsDialog({
 
             <Button
               variant="outline"
-              className="w-full"
+              className="w-full rounded-xl"
               onClick={() => {
                 setView("main");
                 setSearchName("");

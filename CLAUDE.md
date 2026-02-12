@@ -46,8 +46,9 @@
 - [x] 날짜 클릭 시 모달/패널 표시
   - 피드 버튼 (미구현)
   - 사냥 버튼 ✅
-  - 보스 버튼 (설정만 완료)
+  - 보스 버튼 ✅
 - [x] 각 날짜에 사냥 총합(Total) 표시
+- [x] 각 날짜에 보스 수익 표시
 
 ### 3. 보스 설정 ✅ (신규)
 - [x] 보스 목록 표시 (주간/월간)
@@ -166,6 +167,21 @@
 - UNIQUE(character_id, boss_id, difficulty)
 ```
 
+### BossClear (보스 클리어 기록) ✅ 구현 완료
+```
+- id: INTEGER PRIMARY KEY
+- character_id: INTEGER (FK → Character)
+- boss_id: TEXT (보스 식별자)
+- difficulty: TEXT (easy/normal/hard/chaos/extreme)
+- cleared_date: DATE (클리어 날짜)
+- week_start_date: DATE (주간/월간 시작일)
+- crystal_price: BIGINT (결정석 가격)
+- party_size: INTEGER (1-6)
+- is_monthly: BOOLEAN (월간 보스 여부)
+- created_at: DATETIME
+- UNIQUE(character_id, boss_id, week_start_date)
+```
+
 ---
 
 ## 폴더 구조 (현재)
@@ -183,10 +199,14 @@ Maple_Diary/
 │   ├── components/
 │   │   ├── ui/             # shadcn/ui 컴포넌트
 │   │   ├── BossSettingsDialog.tsx
+│   │   ├── BossClearDialog.tsx
 │   │   ├── DailyDashboardDialog.tsx
+│   │   ├── HuntingDialog.tsx
+│   │   ├── DifficultyBadge.tsx
 │   │   └── SettingsDialog.tsx
 │   ├── data/
-│   │   └── bossData.ts     # 보스 데이터 (가격, 난이도)
+│   │   ├── bossData.ts     # 보스 데이터 (가격, 난이도)
+│   │   └── expTable.ts     # 경험치 테이블
 │   ├── pages/
 │   │   └── MainPage.tsx    # 메인 달력 페이지
 │   ├── hooks/
@@ -238,11 +258,18 @@ Maple_Diary/
 6. ⬜ OCR 이미지 분석 구현 (추후)
 7. ⬜ 주간 경험치 추이 차트 (현재 비활성화 상태)
 
-### Phase 5: 고도화 (추후)
+### Phase 5: 보스 클리어 ✅ 완료
+1. ✅ 보스 클리어 기록 (주간/월간 체크리스트)
+2. ✅ 주간/월간 클리어 현황 프로그레스 바
+3. ✅ 클리어 날짜별 상태 표시 (오늘 클리어, 다른 날 클리어)
+4. ✅ 초기화일 표시 (주간: 목요일, 월간: 1일)
+5. ✅ 캐릭터별 데이터 분리
+
+### Phase 6: 고도화 (추후)
 1. ⬜ 피드 기능
-2. ⬜ 보스 클리어 기록
-3. ⬜ 통계/차트
-4. ⬜ 보스/난이도 이미지 추가
+2. ⬜ 통계/차트
+3. ⬜ 보스/난이도 이미지 추가
+4. ⬜ 사냥 기록 수정 기능
 
 ---
 
@@ -279,9 +306,9 @@ https://open.api.nexon.com/maplestory/v1
 
 ## 현재 상태 및 다음 작업
 
-### 현재 완료된 기능
+### 현재 완료된 기능 (v0.0.6)
 - Tauri v2 + React + TypeScript 기반 앱
-- SQLite 데이터베이스 (settings, characters, hunting_sessions, boss_settings)
+- SQLite 데이터베이스 (settings, characters, hunting_sessions, boss_settings, boss_clears)
 - 메이플스토리 API 연동 (캐릭터 조회, 경험치 히스토리)
 - 달력 기반 메인 UI
 - 다크/라이트 테마
@@ -289,19 +316,74 @@ https://open.api.nexon.com/maplestory/v1
 - 데이터 백업/복원/초기화
 - **사냥 기록 수동 입력** (레벨, 경험치, 메소, 솔 에르다, 솔 에르다 조각, 소재비)
 - **솔 에르다 시스템** (개수 0-20, 게이지 0-1000, 조각 별도 기록)
+- **보스 클리어 기록** (주간/월간 체크리스트, 프로그레스 바, 초기화일 표시)
+- **캐릭터별 데이터 분리** (사냥, 보스 클리어 모두 캐릭터별 저장)
 
 ### UI/UX 개선 사항
 - Select 드롭다운 배경색 수정 (투명 문제 해결)
 - number input 기본 스피너 전역 숨김
 - 소재비 입력 UI (정수 단위, 위/아래 버튼)
+- 보스 클리어 모달 그리드 레이아웃 (보스 설정과 일관성)
+- 체크박스 클릭 시 스크롤 위치 유지
+- 보스 목록 정렬 (월간 우선, 가격 내림차순)
 
 ### 대기 중인 사용자 제공 항목
-- 보스 이미지
+- 보스 이미지 ✅ (제공 완료)
 - 난이도 이미지
 
 ### 다음 작업 후보
-1. 스크린샷 업로드 + OCR 자동 인식
-2. 보스 클리어 기록 (체크리스트)
-3. 주간 경험치 추이 차트 활성화
-4. 피드 기능
-5. 사냥 기록 수정 기능
+1. 스크린샷 업로드 + OCR 자동 인식 (진행 중)
+2. 주간 경험치 추이 차트 활성화
+3. 피드 기능
+4. 사냥 기록 수정 기능
+5. 통계/차트
+
+---
+
+## OCR 개발 진행 상황 (2026-02-12)
+
+### 현재 구현된 OCR 기능
+- **Windows OCR API** 사용 (windows 크레이트)
+- **스크린샷 선택 UI** 구현 완료 (`ScreenshotRecognitionDialog.tsx`)
+  - 폴더 설정 및 실시간 스캔
+  - 시작/종료 스크린샷 선택
+  - 자동 감지 (2개일 경우)
+- **OCR 분석 함수** 구현 (`src-tauri/src/ocr.rs`)
+  - `extract_text_from_image`: 전체 이미지 OCR
+  - `extract_sol_erda_from_image`: 솔 에르다 영역 크롭 OCR
+  - `extract_exp_from_image`: 경험치 영역 크롭 OCR
+  - `parse_hunting_data`: 텍스트에서 정보 파싱
+
+### 인식 성공 항목
+- ✅ **레벨**: `LⅥ287`, `Lv.287` 등 다양한 패턴 인식
+- ✅ **메소**: `29 역 1309 만 9366` (억→역 오타 처리 포함)
+
+### 인식 실패 항목 (애로사항)
+- ❌ **경험치**: 화면 하단 경험치 바의 작은 텍스트가 OCR로 인식되지 않음
+- ❌ **솔 에르다 개수/게이지**: `19 348/1000` 형식이 OCR 텍스트에 포함되지 않음
+- ❌ **솔 에르다 조각**: 솔 에르다 UI 영역의 `41` 같은 숫자가 인식되지 않음
+
+### 시도한 해결 방법
+1. **이미지 2배 확대**: 효과 없음, 처리 시간만 증가
+2. **대비 향상**: 효과 없음
+3. **특정 영역 크롭 + 3배 확대 OCR**: 구현했으나 아직 테스트 필요
+   - 솔 에르다 영역: 화면 우측 55-80%, 상단 25-40%
+   - 경험치 영역: 화면 중앙 30-70%, 하단 92-100%
+
+### 애로사항 분석
+1. **Windows OCR의 한계**: 작은 텍스트, 게임 UI 폰트 인식률 낮음
+2. **솔 에르다 UI 위치 불확실**: 인벤토리 창 위치가 스크린샷마다 다를 수 있음
+3. **경험치 바 그래픽 요소**: 텍스트가 그래픽과 겹쳐서 인식 어려움
+
+### 다음 시도할 방법
+1. 크롭 영역 좌표 조정 (실제 스크린샷 기반)
+2. Tesseract OCR 사용 고려 (더 나은 인식률 기대)
+3. 사용자에게 솔 에르다 UI만 별도로 캡처하도록 안내
+4. OCR 결과가 없을 경우 수동 입력으로 폴백
+
+### 관련 파일
+- `src-tauri/src/ocr.rs`: OCR 로직
+- `src-tauri/src/commands.rs`: `analyze_hunting_screenshots` 함수 (596행~)
+- `src/components/ScreenshotRecognitionDialog.tsx`: 스크린샷 선택 UI
+- `다이어리사용이미지/`: 테스트용 스크린샷
+- `솔에르다랑조각부분.jpg`: 솔 에르다 UI 참고 이미지

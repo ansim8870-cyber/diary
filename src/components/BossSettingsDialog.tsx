@@ -17,15 +17,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
-import { Skull, Users, Coins, Pencil, Check, X } from "lucide-react";
+import { Users, Pencil, Check, X } from "lucide-react";
 import type { Character, BossSetting } from "@/types";
 import {
   bossData,
-  difficultyLabels,
   formatMeso,
   type Boss,
   type Difficulty,
 } from "@/data/bossData";
+import { DifficultyBadge } from "@/components/DifficultyBadge";
 import { cn } from "@/lib/utils";
 
 interface BossSettingsDialogProps {
@@ -219,21 +219,26 @@ export function BossSettingsDialog({
     }
   }
 
-  // 예상 수익 계산
-  const weeklyIncome = useMemo(() => {
-    let total = 0;
+  // 예상 수익 계산 (주간/월간 분리)
+  const incomeStats = useMemo(() => {
+    let weeklyTotal = 0;
+    let monthlyTotal = 0;
     let weeklyCount = 0;
 
     for (const [, selected] of selectedBosses) {
       const boss = bossData.find((b) => b.id === selected.bossId);
-      if (!boss?.isMonthly) {
+      // 파티 인원수로 나눈 개인 수익
+      const personalIncome = Math.floor(selected.price / selected.partySize);
+
+      if (boss?.isMonthly) {
+        monthlyTotal += personalIncome;
+      } else {
+        weeklyTotal += personalIncome;
         weeklyCount++;
       }
-      // 파티 인원수로 나눈 개인 수익
-      total += Math.floor(selected.price / selected.partySize);
     }
 
-    return { total, weeklyCount };
+    return { weeklyTotal, monthlyTotal, weeklyCount };
   }, [selectedBosses]);
 
   function renderBossRow(boss: Boss) {
@@ -249,7 +254,7 @@ export function BossSettingsDialog({
       <div
         key={boss.id}
         className={cn(
-          "flex items-center gap-3 p-3 rounded-lg transition-colors",
+          "grid grid-cols-[24px_200px_112px_180px_1fr] items-center gap-3 p-3 rounded-lg transition-colors",
           isSelected ? "bg-primary/10" : "bg-muted/30 hover:bg-muted/50",
           boss.isMonthly && "border border-amber-500/30"
         )}
@@ -261,10 +266,14 @@ export function BossSettingsDialog({
           onCheckedChange={() => handleToggleBoss(boss)}
         />
 
-        {/* 보스 이름 */}
-        <div className="flex items-center gap-2 min-w-[120px]">
-          <Skull className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-          <label htmlFor={boss.id} className="font-medium cursor-pointer text-sm">
+        {/* 보스 이미지 + 이름 */}
+        <div className="flex items-center gap-2 overflow-hidden">
+          <img
+            src={boss.image}
+            alt={boss.name}
+            className="w-8 h-8 object-contain flex-shrink-0 rounded-lg"
+          />
+          <label htmlFor={boss.id} className="font-medium cursor-pointer text-sm truncate">
             {boss.name}
           </label>
           {boss.isMonthly && (
@@ -280,31 +289,20 @@ export function BossSettingsDialog({
           onValueChange={(value) => handleDifficultyChange(boss, value as Difficulty)}
           disabled={!isSelected}
         >
-          <SelectTrigger className={cn("w-24 h-8 text-xs", !isSelected && "opacity-50")}>
-            <SelectValue />
+          <SelectTrigger className={cn("w-28 h-8", !isSelected && "opacity-50")}>
+            <DifficultyBadge difficulty={currentDifficulty} size="sm" />
           </SelectTrigger>
           <SelectContent>
             {boss.difficulties.map((diff) => (
               <SelectItem key={diff.difficulty} value={diff.difficulty}>
-                <span
-                  className={cn(
-                    "px-1.5 py-0.5 rounded text-xs font-medium",
-                    diff.difficulty === "easy" && "bg-green-500/20 text-green-600 dark:text-green-400",
-                    diff.difficulty === "normal" && "bg-blue-500/20 text-blue-600 dark:text-blue-400",
-                    diff.difficulty === "hard" && "bg-orange-500/20 text-orange-600 dark:text-orange-400",
-                    diff.difficulty === "chaos" && "bg-red-500/20 text-red-600 dark:text-red-400",
-                    diff.difficulty === "extreme" && "bg-purple-500/20 text-purple-600 dark:text-purple-400"
-                  )}
-                >
-                  {difficultyLabels[diff.difficulty]}
-                </span>
+                <DifficultyBadge difficulty={diff.difficulty} size="sm" />
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
         {/* 가격 표시 및 수정 */}
-        <div className="flex-1 min-w-[160px]">
+        <div>
           {isEditing ? (
             <div className="flex items-center gap-1">
               <Input
@@ -390,29 +388,38 @@ export function BossSettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Skull className="h-5 w-5" />
+          <DialogTitle className="flex items-center gap-3">
+            <img src="/images/icons/주간결정석.png" alt="보스" className="w-7 h-7" />
             보스 설정
           </DialogTitle>
         </DialogHeader>
 
         {/* 예상 수익 요약 */}
-        <Card className="p-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-amber-500/20">
+        <Card className="p-5 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border-2 border-amber-500/30 shadow-lg">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Coins className="h-5 w-5 text-amber-500" />
-              <span className="font-medium">주간 예상 수익</span>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-amber-500/20">
+                <img src="/images/icons/메소.png" alt="메소" className="w-6 h-6" />
+              </div>
+              <div>
+                <span className="font-bold text-lg">주간 예상 수익</span>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  주간 보스 {incomeStats.weeklyCount}개 / 12개
+                  {incomeStats.weeklyCount > 12 && (
+                    <span className="text-red-500 font-semibold ml-1">(초과!)</span>
+                  )}
+                </p>
+              </div>
             </div>
             <div className="text-right">
-              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
-                {formatMeso(weeklyIncome.total)}
+              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                {formatMeso(incomeStats.weeklyTotal)}
               </p>
-              <p className="text-xs text-muted-foreground">
-                주간 보스 {weeklyIncome.weeklyCount}개 / 12개
-                {weeklyIncome.weeklyCount > 12 && (
-                  <span className="text-red-500 ml-1">(초과!)</span>
-                )}
-              </p>
+              {incomeStats.monthlyTotal > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  월간 보스: <span className="text-amber-600 dark:text-amber-400 font-semibold">{formatMeso(incomeStats.monthlyTotal)}</span>
+                </p>
+              )}
             </div>
           </div>
         </Card>
@@ -423,11 +430,11 @@ export function BossSettingsDialog({
         </div>
 
         {/* 저장 버튼 */}
-        <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <div className="flex justify-end gap-3 pt-5 border-t border-border/60">
+          <Button variant="outline" className="rounded-xl px-6" onClick={() => onOpenChange(false)}>
             취소
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button className="rounded-xl px-8" onClick={handleSave} disabled={isSaving}>
             {isSaving ? "저장 중..." : "저장"}
           </Button>
         </div>
