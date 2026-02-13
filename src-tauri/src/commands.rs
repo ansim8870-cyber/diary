@@ -1,9 +1,9 @@
 use crate::api::MapleApi;
 use crate::db::{AppSettings, BossClear, BossSetting, Character, DailyTotal, Database, ExpHistory, HuntingSession, Settings, WeeklyBossSummary};
-use crate::ocr::{self, HuntingScreenshotData, HuntingResult};
+use crate::ocr::{HuntingScreenshotData, HuntingResult};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Manager, State};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchCharacterResult {
@@ -579,123 +579,68 @@ pub fn get_daily_totals_with_pieces(
 }
 
 // OCR Commands
+
 #[tauri::command]
-pub async fn analyze_screenshot(image_path: String) -> Result<HuntingScreenshotData, String> {
-    // 이미지에서 텍스트 추출
-    let text = ocr::extract_text_from_image(&image_path)
-        .await
-        .map_err(|e| e.to_string())?;
+pub async fn analyze_screenshot(
+    app: tauri::AppHandle,
+    image_path: String,
+) -> Result<HuntingScreenshotData, String> {
+    // 리소스 디렉토리 경로 가져오기
+    let resources_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("리소스 디렉토리를 찾을 수 없습니다: {}", e))?;
 
-    // 텍스트에서 사냥 정보 파싱
-    let data = ocr::parse_hunting_data(&text);
+    // 개발 모드에서는 src-tauri/resources 폴더 사용
+    let resources_dir = if resources_dir.join("tessdata").exists() {
+        resources_dir
+    } else {
+        // 개발 모드 fallback: 현재 실행 파일 기준으로 src-tauri/resources 찾기
+        let dev_resources = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        if dev_resources.join("tessdata").exists() {
+            dev_resources
+        } else {
+            resources_dir
+        }
+    };
 
-    Ok(data)
+    crate::ocr::analyze_screenshot(&image_path, &resources_dir)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn analyze_hunting_screenshots(
+    app: tauri::AppHandle,
     start_image_path: String,
     end_image_path: String,
 ) -> Result<HuntingResult, String> {
-    println!("[OCR] ========================================");
-    println!("[OCR] analyze_hunting_screenshots 호출됨");
-    println!("[OCR] 시작 이미지: {}", start_image_path);
-    println!("[OCR] 종료 이미지: {}", end_image_path);
-    println!("[OCR] ========================================");
+    // 리소스 디렉토리 경로 가져오기
+    let resources_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("리소스 디렉토리를 찾을 수 없습니다: {}", e))?;
 
-    // ===== 시작 스크린샷 분석 =====
-    println!("[OCR] 시작 스크린샷 분석 시작...");
+    // 개발 모드에서는 src-tauri/resources 폴더 사용
+    let resources_dir = if resources_dir.join("tessdata").exists() {
+        resources_dir
+    } else {
+        // 개발 모드 fallback: 현재 실행 파일 기준으로 src-tauri/resources 찾기
+        let dev_resources = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        if dev_resources.join("tessdata").exists() {
+            dev_resources
+        } else {
+            resources_dir
+        }
+    };
 
-    // 1. 전체 이미지 OCR (메소, 레벨)
-    let start_text = ocr::extract_text_from_image(&start_image_path)
-        .await
-        .map_err(|e| {
-            println!("[OCR] 시작 스크린샷 분석 실패: {}", e);
-            format!("시작 스크린샷 분석 실패: {}", e)
-        })?;
-    let mut start_data = ocr::parse_hunting_data(&start_text);
+    // 시작/종료 스크린샷 분석
+    let start_data = crate::ocr::analyze_screenshot(&start_image_path, &resources_dir)
+        .map_err(|e| format!("시작 스크린샷 분석 실패: {}", e))?;
 
-    println!("[OCR] ========== 시작 스크린샷 (전체) ==========");
-    println!("[OCR] 텍스트:\n{}", start_text);
-    println!("[OCR] 파싱 결과:");
-    println!("  - 레벨: {:?}", start_data.level);
-    println!("  - 메소: {:?}", start_data.meso);
+    let end_data = crate::ocr::analyze_screenshot(&end_image_path, &resources_dir)
+        .map_err(|e| format!("종료 스크린샷 분석 실패: {}", e))?;
 
-    // 2. 솔 에르다 영역 크롭 OCR
-    println!("[OCR] 시작 스크린샷 - 솔 에르다 영역 분석...");
-    if let Ok((count, gauge, piece)) = ocr::extract_sol_erda_from_image(&start_image_path).await {
-        if count.is_some() { start_data.sol_erda_count = count; }
-        if gauge.is_some() { start_data.sol_erda_gauge = gauge; }
-        if piece.is_some() { start_data.sol_erda_piece = piece; }
-        println!("  - 솔 에르다 개수: {:?}", start_data.sol_erda_count);
-        println!("  - 솔 에르다 게이지: {:?}", start_data.sol_erda_gauge);
-        println!("  - 솔 에르다 조각: {:?}", start_data.sol_erda_piece);
-    }
-
-    // 3. 경험치 영역 크롭 OCR
-    println!("[OCR] 시작 스크린샷 - 경험치 영역 분석...");
-    if let Ok(exp) = ocr::extract_exp_from_image(&start_image_path).await {
-        if exp.is_some() { start_data.exp_percent = exp; }
-        println!("  - 경험치: {:?}", start_data.exp_percent);
-    }
-
-    // ===== 종료 스크린샷 분석 =====
-    println!("[OCR] 종료 스크린샷 분석 시작...");
-
-    // 1. 전체 이미지 OCR (메소, 레벨)
-    let end_text = ocr::extract_text_from_image(&end_image_path)
-        .await
-        .map_err(|e| {
-            println!("[OCR] 종료 스크린샷 분석 실패: {}", e);
-            format!("종료 스크린샷 분석 실패: {}", e)
-        })?;
-    let mut end_data = ocr::parse_hunting_data(&end_text);
-
-    println!("[OCR] ========== 종료 스크린샷 (전체) ==========");
-    println!("[OCR] 텍스트:\n{}", end_text);
-    println!("[OCR] 파싱 결과:");
-    println!("  - 레벨: {:?}", end_data.level);
-    println!("  - 메소: {:?}", end_data.meso);
-
-    // 2. 솔 에르다 영역 크롭 OCR
-    println!("[OCR] 종료 스크린샷 - 솔 에르다 영역 분석...");
-    if let Ok((count, gauge, piece)) = ocr::extract_sol_erda_from_image(&end_image_path).await {
-        if count.is_some() { end_data.sol_erda_count = count; }
-        if gauge.is_some() { end_data.sol_erda_gauge = gauge; }
-        if piece.is_some() { end_data.sol_erda_piece = piece; }
-        println!("  - 솔 에르다 개수: {:?}", end_data.sol_erda_count);
-        println!("  - 솔 에르다 게이지: {:?}", end_data.sol_erda_gauge);
-        println!("  - 솔 에르다 조각: {:?}", end_data.sol_erda_piece);
-    }
-
-    // 3. 경험치 영역 크롭 OCR
-    println!("[OCR] 종료 스크린샷 - 경험치 영역 분석...");
-    if let Ok(exp) = ocr::extract_exp_from_image(&end_image_path).await {
-        if exp.is_some() { end_data.exp_percent = exp; }
-        println!("  - 경험치: {:?}", end_data.exp_percent);
-    }
-
-    // 사냥 결과 계산
-    let result = ocr::calculate_hunting_result(&start_data, &end_data)
-        .ok_or_else(|| "사냥 결과 계산 실패".to_string())?;
-
-    println!("[OCR] ========== 최종 결과 ==========");
-    println!("  - 레벨: {} -> {}", result.start_level, result.end_level);
-    println!("  - 경험치: {:.3}% -> {:.3}% (획득: {:.3}%)", result.start_exp_percent, result.end_exp_percent, result.exp_gained);
-    println!("  - 메소: {} -> {} (획득: {})", result.start_meso, result.end_meso, result.meso_gained);
-    println!("  - 솔 에르다: {}개 {}게이지 -> {}개 {}게이지 (획득: {:.3})",
-             result.start_sol_erda, result.start_sol_erda_gauge,
-             result.end_sol_erda, result.end_sol_erda_gauge, result.sol_erda_gained);
-    println!("  - 솔 에르다 조각: {} -> {} (획득: {})",
-             result.start_sol_erda_piece, result.end_sol_erda_piece, result.sol_erda_piece_gained);
-
-    Ok(result)
-}
-
-// OCR 텍스트만 추출 (디버그용)
-#[tauri::command]
-pub async fn extract_screenshot_text(image_path: String) -> Result<String, String> {
-    ocr::extract_text_from_image(&image_path)
-        .await
-        .map_err(|e| e.to_string())
+    // 결과 계산
+    crate::ocr::calculate_hunting_result(&start_data, &end_data)
+        .ok_or_else(|| "사냥 결과 계산 실패".to_string())
 }

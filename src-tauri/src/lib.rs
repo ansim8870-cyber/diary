@@ -56,10 +56,9 @@ pub fn run() {
             commands::save_app_settings,
             commands::save_screenshot_folder_path,
             commands::get_daily_totals_with_pieces,
-            // OCR Commands
+            // OCR Commands (현재 미구현)
             commands::analyze_screenshot,
             commands::analyze_hunting_screenshots,
-            commands::extract_screenshot_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
