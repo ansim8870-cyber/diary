@@ -1,9 +1,8 @@
-use crate::api::MapleApi;
-use crate::db::{AppSettings, BossClear, BossSetting, Character, DailyTotal, Database, ExpHistory, HuntingSession, Settings, WeeklyBossSummary};
-use crate::ocr::{HuntingScreenshotData, HuntingResult};
+use crate::api::{CharacterListItem, MapleApi};
+use crate::db::{AppSettings, BossClear, BossSetting, Character, DailyTotal, Database, ExpHistory, HuntingSession, ItemDrop, Settings, WeeklyBossSummary};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use tauri::{Manager, State};
+use tauri::State;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchCharacterResult {
@@ -93,6 +92,24 @@ pub async fn search_character(
     })
 }
 
+#[tauri::command]
+pub async fn get_character_list(
+    state: State<'_, AppState>,
+    api_key: Option<String>,
+) -> Result<Vec<CharacterListItem>, String> {
+    let key = match api_key {
+        Some(k) => k,
+        None => {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let settings = db.get_settings().map_err(|e| e.to_string())?;
+            settings.ok_or("API Key가 설정되지 않았습니다")?.api_key
+        }
+    };
+
+    let api = MapleApi::new(&key);
+    api.get_character_list().await.map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RegisterCharacterInput {
     pub ocid: String,
@@ -160,6 +177,7 @@ pub async fn refresh_character(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.update_character(
             character.id,
+            &latest.character_name,
             latest.character_level,
             &latest.character_exp_rate,
             &latest.character_image,
@@ -303,38 +321,35 @@ pub async fn get_weekly_exp_from_api(
     };
 
     let api = MapleApi::new(&api_key);
-    let mut results: Vec<DailyExpData> = Vec::new();
-
-    // 오늘 데이터 (date 파라미터 없이 현재 데이터 조회)
     let today = chrono::Local::now();
     let today_str = today.format("%Y-%m-%d").to_string();
-    match api.get_character_basic(&character.ocid).await {
-        Ok(data) => {
-            results.push(DailyExpData {
-                date: today_str,
-                level: data.character_level,
-                exp: data.character_exp,
-            });
-        }
-        Err(_) => {}
+
+    // 과거 6일의 날짜 문자열 미리 생성
+    let past_dates: Vec<String> = (1..=6)
+        .map(|i| (today - chrono::Duration::days(i)).format("%Y-%m-%d").to_string())
+        .collect();
+
+    // 오늘 + 과거 6일 API 호출을 병렬로 실행
+    let (today_result, d1, d2, d3, d4, d5, d6) = tokio::join!(
+        api.get_character_basic(&character.ocid),
+        api.get_character_basic_by_date(&character.ocid, &past_dates[0]),
+        api.get_character_basic_by_date(&character.ocid, &past_dates[1]),
+        api.get_character_basic_by_date(&character.ocid, &past_dates[2]),
+        api.get_character_basic_by_date(&character.ocid, &past_dates[3]),
+        api.get_character_basic_by_date(&character.ocid, &past_dates[4]),
+        api.get_character_basic_by_date(&character.ocid, &past_dates[5]),
+    );
+
+    let mut results: Vec<DailyExpData> = Vec::new();
+
+    if let Ok(data) = today_result {
+        results.push(DailyExpData { date: today_str, level: data.character_level, exp: data.character_exp });
     }
 
-    // 과거 6일 데이터 조회 (어제부터 6일 전까지)
-    for i in 1..=6 {
-        let date = chrono::Local::now() - chrono::Duration::days(i);
-        let date_str = date.format("%Y-%m-%d").to_string();
-
-        match api.get_character_basic_by_date(&character.ocid, &date_str).await {
-            Ok(data) => {
-                results.push(DailyExpData {
-                    date: date_str,
-                    level: data.character_level,
-                    exp: data.character_exp,
-                });
-            }
-            Err(_) => {
-                // 해당 날짜 데이터가 없으면 스킵
-            }
+    let past_results = [d1, d2, d3, d4, d5, d6];
+    for (i, result) in past_results.into_iter().enumerate() {
+        if let Ok(data) = result {
+            results.push(DailyExpData { date: past_dates[i].clone(), level: data.character_level, exp: data.character_exp });
         }
     }
 
@@ -578,69 +593,57 @@ pub fn get_daily_totals_with_pieces(
     }).collect())
 }
 
-// OCR Commands
-
+// Item Drop Commands
 #[tauri::command]
-pub async fn analyze_screenshot(
-    app: tauri::AppHandle,
-    image_path: String,
-) -> Result<HuntingScreenshotData, String> {
-    // 리소스 디렉토리 경로 가져오기
-    let resources_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("리소스 디렉토리를 찾을 수 없습니다: {}", e))?;
-
-    // 개발 모드에서는 src-tauri/resources 폴더 사용
-    let resources_dir = if resources_dir.join("tessdata").exists() {
-        resources_dir
-    } else {
-        // 개발 모드 fallback: 현재 실행 파일 기준으로 src-tauri/resources 찾기
-        let dev_resources = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
-        if dev_resources.join("tessdata").exists() {
-            dev_resources
-        } else {
-            resources_dir
-        }
-    };
-
-    crate::ocr::analyze_screenshot(&image_path, &resources_dir)
+pub fn save_item_drop(
+    state: State<AppState>,
+    character_id: i64,
+    date: String,
+    item_name: String,
+    price: i64,
+    screenshot: Option<String>,
+) -> Result<i64, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.save_item_drop(character_id, &date, &item_name, price, screenshot.as_deref())
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn analyze_hunting_screenshots(
-    app: tauri::AppHandle,
-    start_image_path: String,
-    end_image_path: String,
-) -> Result<HuntingResult, String> {
-    // 리소스 디렉토리 경로 가져오기
-    let resources_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("리소스 디렉토리를 찾을 수 없습니다: {}", e))?;
+pub fn get_item_drops(
+    state: State<AppState>,
+    character_id: i64,
+    date: String,
+) -> Result<Vec<ItemDrop>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_item_drops(character_id, &date).map_err(|e| e.to_string())
+}
 
-    // 개발 모드에서는 src-tauri/resources 폴더 사용
-    let resources_dir = if resources_dir.join("tessdata").exists() {
-        resources_dir
-    } else {
-        // 개발 모드 fallback: 현재 실행 파일 기준으로 src-tauri/resources 찾기
-        let dev_resources = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
-        if dev_resources.join("tessdata").exists() {
-            dev_resources
-        } else {
-            resources_dir
-        }
-    };
+#[tauri::command]
+pub fn update_item_drop(
+    state: State<AppState>,
+    id: i64,
+    item_name: String,
+    price: i64,
+    screenshot: Option<String>,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.update_item_drop(id, &item_name, price, screenshot.as_deref())
+        .map_err(|e| e.to_string())
+}
 
-    // 시작/종료 스크린샷 분석
-    let start_data = crate::ocr::analyze_screenshot(&start_image_path, &resources_dir)
-        .map_err(|e| format!("시작 스크린샷 분석 실패: {}", e))?;
+#[tauri::command]
+pub fn delete_item_drop(state: State<AppState>, id: i64) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.delete_item_drop(id).map_err(|e| e.to_string())
+}
 
-    let end_data = crate::ocr::analyze_screenshot(&end_image_path, &resources_dir)
-        .map_err(|e| format!("종료 스크린샷 분석 실패: {}", e))?;
-
-    // 결과 계산
-    crate::ocr::calculate_hunting_result(&start_data, &end_data)
-        .ok_or_else(|| "사냥 결과 계산 실패".to_string())
+#[tauri::command]
+pub fn get_monthly_item_drops(
+    state: State<AppState>,
+    character_id: i64,
+    year: i32,
+    month: i32,
+) -> Result<Vec<ItemDrop>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_monthly_item_drops(character_id, year, month).map_err(|e| e.to_string())
 }

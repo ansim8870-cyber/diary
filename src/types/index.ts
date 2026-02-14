@@ -75,6 +75,15 @@ export interface DailyTotal {
   session_count: number;
 }
 
+// 캐릭터 목록 아이템 (character/list API)
+export interface CharacterListItem {
+  ocid: string;
+  character_name: string;
+  world_name: string;
+  character_class: string;
+  character_level: number;
+}
+
 // 캐릭터 검색 결과
 export interface SearchCharacterResult {
   ocid: string;
@@ -143,6 +152,17 @@ export interface AppSettings {
   screenshot_folder_path?: string;
   created_at: string;
   updated_at: string;
+}
+
+// 아이템 드랍 기록 (백엔드 응답과 일치)
+export interface ItemDrop {
+  id: number;
+  character_id: number;
+  date: string;
+  item_name: string;
+  price: number;
+  screenshot?: string;
+  created_at: string;
 }
 
 // 스크린샷 파일 정보

@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Camera, FolderOpen, Loader2, Edit3, Search, FolderSearch, Scan } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import type { AppSettings, ScreenshotFile, HuntingOcrResult } from "@/types";
 
 interface ScreenshotRecognitionDialogProps {
@@ -238,11 +238,6 @@ export function ScreenshotRecognitionDialog({
   function handleManualInputClick() {
     onOpenChange(false);
     onManualInput();
-  }
-
-  function formatDate(dateStr: string) {
-    const [year, month, day] = dateStr.split("-");
-    return `${year}년 ${parseInt(month)}월 ${parseInt(day)}일`;
   }
 
   // 다이얼로그 닫힐 때 상태 초기화

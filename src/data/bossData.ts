@@ -38,11 +38,34 @@ export function formatMeso(value: number): string {
     const eok = Math.floor(value / billion);
     const remainder = Math.floor((value % billion) / tenThousand);
     if (remainder > 0) {
-      return `${eok}억 ${remainder.toLocaleString()}만 메소`;
+      return `${eok}억 ${remainder}만 메소`;
     }
     return `${eok}억 메소`;
   } else if (value >= tenThousand) {
-    return `${Math.floor(value / tenThousand).toLocaleString()}만 메소`;
+    return `${Math.floor(value / tenThousand)}만 메소`;
+  }
+  return `${value.toLocaleString()} 메소`;
+}
+
+export function formatMesoDetailed(value: number): string {
+  const billion = 100000000; // 1억
+  const tenThousand = 10000; // 1만
+
+  if (value >= billion) {
+    const eok = Math.floor(value / billion);
+    const man = Math.floor((value % billion) / tenThousand);
+    const remainder = value % tenThousand;
+    let result = `${eok}억`;
+    if (man > 0) result += ` ${man}만`;
+    if (remainder > 0) result += ` ${remainder}`;
+    return result + " 메소";
+  } else if (value >= tenThousand) {
+    const man = Math.floor(value / tenThousand);
+    const remainder = value % tenThousand;
+    if (remainder > 0) {
+      return `${man}만 ${remainder} 메소`;
+    }
+    return `${man}만 메소`;
   }
   return `${value.toLocaleString()} 메소`;
 }

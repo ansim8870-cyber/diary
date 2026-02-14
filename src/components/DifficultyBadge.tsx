@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Difficulty, difficultyLabels } from "@/data/bossData";
 
 interface DifficultyBadgeProps {
@@ -19,7 +20,7 @@ const difficultyStyles: Record<Difficulty, string> = {
   extreme: "bg-black text-[#e63946] border-2 border-[#e63946]",
 };
 
-export function DifficultyBadge({ difficulty, size = "md" }: DifficultyBadgeProps) {
+export const DifficultyBadge = memo(function DifficultyBadge({ difficulty, size = "md" }: DifficultyBadgeProps) {
   return (
     <span
       className={`
@@ -32,4 +33,4 @@ export function DifficultyBadge({ difficulty, size = "md" }: DifficultyBadgeProp
       {difficultyLabels[difficulty]}
     </span>
   );
-}
+});

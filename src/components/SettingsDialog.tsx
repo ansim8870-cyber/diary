@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Loader2,
   UserCog,
@@ -19,11 +18,11 @@ import {
   Upload,
   Trash2,
   Search,
-  Check,
   FolderOpen,
   X,
+  ArrowLeft,
 } from "lucide-react";
-import type { Character, SearchCharacterResult, AppSettings } from "@/types";
+import type { Character, CharacterListItem, AppSettings } from "@/types";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -31,7 +30,7 @@ interface SettingsDialogProps {
   onCharacterChange: (character: Character) => void;
 }
 
-type SettingsView = "main" | "change-character";
+type SettingsView = "main" | "select-server" | "select-character";
 
 export function SettingsDialog({
   open,
@@ -40,10 +39,38 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const [view, setView] = useState<SettingsView>("main");
   const [isLoading, setIsLoading] = useState(false);
-  const [searchName, setSearchName] = useState("");
-  const [searchResult, setSearchResult] = useState<SearchCharacterResult | null>(null);
-  const [searchError, setSearchError] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [error, setError] = useState("");
   const [screenshotFolder, setScreenshotFolder] = useState<string | null>(null);
+
+  // 캐릭터 목록 관련 상태
+  const [allCharacters, setAllCharacters] = useState<CharacterListItem[]>([]);
+  const [selectedServer, setSelectedServer] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // 캐릭터가 있는 서버 목록
+  const servers = useMemo(() => {
+    const serverMap = new Map<string, number>();
+    for (const char of allCharacters) {
+      serverMap.set(char.world_name, (serverMap.get(char.world_name) || 0) + 1);
+    }
+    return Array.from(serverMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+  }, [allCharacters]);
+
+  // 선택된 서버의 캐릭터 목록 (레벨 내림차순, 검색 필터링)
+  const filteredCharacters = useMemo(() => {
+    if (!selectedServer) return [];
+    return allCharacters
+      .filter(
+        (c) =>
+          c.world_name === selectedServer &&
+          (searchQuery === "" ||
+            c.character_name.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
+      .sort((a, b) => b.character_level - a.character_level);
+  }, [allCharacters, selectedServer, searchQuery]);
 
   // 설정 로드
   useEffect(() => {
@@ -89,56 +116,67 @@ export function SettingsDialog({
   function handleClose(isOpen: boolean) {
     if (!isOpen) {
       setView("main");
-      setSearchName("");
-      setSearchResult(null);
-      setSearchError("");
+      setAllCharacters([]);
+      setSelectedServer(null);
+      setSearchQuery("");
+      setError("");
     }
     onOpenChange(isOpen);
   }
 
-  async function handleSearchCharacter() {
-    if (!searchName.trim()) return;
-
+  async function handleStartCharacterChange() {
     setIsLoading(true);
-    setSearchError("");
-    setSearchResult(null);
-
+    setError("");
     try {
-      const result = await invoke<SearchCharacterResult>("search_character", {
-        characterName: searchName.trim(),
-      });
-      setSearchResult(result);
-    } catch (error) {
-      setSearchError(
-        typeof error === "string" ? error : "캐릭터를 찾을 수 없습니다"
-      );
+      const characters = await invoke<CharacterListItem[]>("get_character_list");
+      setAllCharacters(characters);
+      setView("select-server");
+    } catch (err) {
+      setError(`캐릭터 목록 조회 실패: ${err}`);
     } finally {
       setIsLoading(false);
     }
   }
 
-  async function handleChangeCharacter() {
-    if (!searchResult) return;
+  function handleServerSelect(serverName: string) {
+    setSelectedServer(serverName);
+    setSearchQuery("");
+    setView("select-character");
+  }
 
-    setIsLoading(true);
+  async function handleCharacterSelect(char: CharacterListItem) {
+    setIsRegistering(true);
+    setError("");
     try {
+      const fullInfo = await invoke<{
+        ocid: string;
+        character_name: string;
+        character_image: string;
+        world_name: string;
+        character_class: string;
+        character_level: number;
+        character_exp_rate: string;
+      }>("search_character", {
+        characterName: char.character_name,
+      });
+
       const character = await invoke<Character>("register_character", {
         input: {
-          character_name: searchResult.character_name,
-          character_image: searchResult.character_image,
-          ocid: searchResult.ocid,
-          world_name: searchResult.world_name,
-          character_class: searchResult.character_class,
-          character_level: searchResult.character_level,
-          character_exp_rate: searchResult.character_exp_rate,
+          character_name: fullInfo.character_name,
+          character_image: fullInfo.character_image,
+          ocid: fullInfo.ocid,
+          world_name: fullInfo.world_name,
+          character_class: fullInfo.character_class,
+          character_level: fullInfo.character_level,
+          character_exp_rate: fullInfo.character_exp_rate,
         },
       });
       onCharacterChange(character);
       handleClose(false);
-    } catch (error) {
-      console.error("Failed to change character:", error);
+    } catch (err) {
+      setError(`캐릭터 변경 실패: ${err}`);
     } finally {
-      setIsLoading(false);
+      setIsRegistering(false);
     }
   }
 
@@ -216,35 +254,60 @@ export function SettingsDialog({
     }
   }
 
+  const dialogTitle =
+    view === "main"
+      ? "설정"
+      : view === "select-server"
+        ? "서버 선택"
+        : "캐릭터 선택";
+
+  const dialogDesc =
+    view === "main"
+      ? "캐릭터 및 데이터 관리"
+      : view === "select-server"
+        ? "캐릭터가 있는 서버를 선택해주세요"
+        : `${selectedServer} 서버의 캐릭터를 선택해주세요`;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <span className="text-2xl">{view === "main" ? "⚙️" : "👤"}</span>
-            {view === "main" ? "설정" : "캐릭터 변경"}
+            <span className="text-2xl">
+              {view === "main" ? "⚙️" : "👤"}
+            </span>
+            {dialogTitle}
           </DialogTitle>
-          <DialogDescription>
-            {view === "main"
-              ? "캐릭터 및 데이터 관리"
-              : "다른 캐릭터로 변경합니다"}
-          </DialogDescription>
+          <DialogDescription>{dialogDesc}</DialogDescription>
         </DialogHeader>
 
-        {view === "main" ? (
+        {error && (
+          <p className="text-sm text-destructive font-medium p-3 rounded-lg bg-destructive/10">
+            {error}
+          </p>
+        )}
+
+        {view === "main" && (
           <div className="space-y-3">
             <Button
               variant="outline"
               className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-primary/30 hover:bg-primary/5 transition-all"
-              onClick={() => setView("change-character")}
+              onClick={handleStartCharacterChange}
+              disabled={isLoading}
             >
               <div className="p-2 rounded-lg bg-primary/10">
-                <UserCog className="h-5 w-5 text-primary" />
+                {isLoading ? (
+                  <Loader2 className="h-5 w-5 text-primary animate-spin" />
+                ) : (
+                  <UserCog className="h-5 w-5 text-primary" />
+                )}
               </div>
               <div className="text-left">
                 <p className="font-semibold">캐릭터 변경</p>
                 <p className="text-xs text-muted-foreground">
-                  다른 캐릭터로 전환합니다
+                  {isLoading
+                    ? "캐릭터 목록을 불러오는 중..."
+                    : "다른 캐릭터로 전환합니다"}
                 </p>
               </div>
             </Button>
@@ -331,81 +394,116 @@ export function SettingsDialog({
               </div>
             </Button>
           </div>
-        ) : (
-          <div className="space-y-5">
-            <div className="space-y-3">
-              <Label className="text-sm font-semibold">캐릭터 닉네임</Label>
-              <div className="flex gap-3">
-                <Input
-                  placeholder="닉네임을 입력하세요"
-                  value={searchName}
-                  onChange={(e) => setSearchName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearchCharacter()}
-                  className="flex-1"
-                />
-                <Button onClick={handleSearchCharacter} disabled={isLoading} className="rounded-xl px-5">
-                  {isLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Search className="h-4 w-4" />
-                  )}
-                </Button>
+        )}
+
+        {view === "select-server" && (
+          <div className="space-y-4">
+            {servers.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">
+                  캐릭터를 찾을 수 없습니다
+                </p>
               </div>
-            </div>
-
-            {searchError && (
-              <p className="text-sm text-destructive font-medium p-3 rounded-lg bg-destructive/10">{searchError}</p>
-            )}
-
-            {searchResult && (
-              <div className="rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-5">
-                <div className="flex items-center gap-4">
-                  <img
-                    src={searchResult.character_image}
-                    alt={searchResult.character_name}
-                    className="h-20 w-20 rounded-xl bg-background object-contain shadow-sm ring-2 ring-border/40"
-                  />
-                  <div className="flex-1">
-                    <h3 className="font-bold text-lg">
-                      {searchResult.character_name}
-                    </h3>
-                    <p className="text-sm text-muted-foreground font-medium">
-                      {searchResult.world_name} · {searchResult.character_class}
-                    </p>
-                    <p className="text-sm font-semibold mt-1">
-                      Lv.{searchResult.character_level}
-                      <span className="text-primary ml-2">
-                        ({searchResult.character_exp_rate})
-                      </span>
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  className="w-full mt-4 h-11 rounded-xl"
-                  onClick={handleChangeCharacter}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : (
-                    <Check className="h-4 w-4 mr-2" />
-                  )}
-                  이 캐릭터로 변경
-                </Button>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {servers.map((server) => (
+                  <Button
+                    key={server.name}
+                    variant="outline"
+                    className="h-auto py-3 px-2 flex flex-col gap-1 rounded-xl border-2 hover:border-primary/50 hover:bg-primary/5 transition-all"
+                    onClick={() => handleServerSelect(server.name)}
+                  >
+                    <span className="font-semibold text-sm">
+                      {server.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {server.count}캐릭터
+                    </span>
+                  </Button>
+                ))}
               </div>
             )}
 
             <Button
-              variant="outline"
+              variant="ghost"
               className="w-full rounded-xl"
               onClick={() => {
                 setView("main");
-                setSearchName("");
-                setSearchResult(null);
-                setSearchError("");
+                setAllCharacters([]);
+                setError("");
               }}
             >
+              <ArrowLeft className="h-4 w-4 mr-2" />
               뒤로
+            </Button>
+          </div>
+        )}
+
+        {view === "select-character" && (
+          <div className="space-y-4">
+            {/* 검색바 */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="캐릭터 이름 검색..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 rounded-xl"
+              />
+            </div>
+
+            {/* 캐릭터 목록 */}
+            <div className="max-h-[320px] overflow-y-auto space-y-1.5 pr-1">
+              {filteredCharacters.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-8">
+                  {searchQuery
+                    ? "검색 결과가 없습니다"
+                    : "캐릭터가 없습니다"}
+                </p>
+              ) : (
+                filteredCharacters.map((char) => (
+                  <button
+                    key={char.ocid}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-transparent hover:border-primary/30 hover:bg-primary/5 transition-all text-left disabled:opacity-50"
+                    onClick={() => handleCharacterSelect(char)}
+                    disabled={isRegistering}
+                  >
+                    <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground shrink-0">
+                      {char.character_level}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm truncate">
+                        {char.character_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        Lv.{char.character_level} · {char.character_class}
+                      </p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {isRegistering && (
+              <div className="flex items-center justify-center gap-2 py-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">
+                  캐릭터 정보를 가져오는 중...
+                </span>
+              </div>
+            )}
+
+            <Button
+              variant="ghost"
+              className="w-full rounded-xl"
+              onClick={() => {
+                setView("select-server");
+                setSelectedServer(null);
+                setSearchQuery("");
+              }}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              서버 선택으로 돌아가기
             </Button>
           </div>
         )}

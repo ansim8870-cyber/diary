@@ -1,7 +1,6 @@
 mod db;
 mod api;
 mod commands;
-mod ocr;
 
 use std::sync::Mutex;
 use db::Database;
@@ -18,6 +17,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             db: Mutex::new(database),
         })
@@ -27,6 +28,7 @@ pub fn run() {
             commands::get_character,
             commands::register_character,
             commands::search_character,
+            commands::get_character_list,
             commands::refresh_character,
             commands::get_hunting_sessions,
             commands::save_hunting_session,
@@ -56,9 +58,12 @@ pub fn run() {
             commands::save_app_settings,
             commands::save_screenshot_folder_path,
             commands::get_daily_totals_with_pieces,
-            // OCR Commands (현재 미구현)
-            commands::analyze_screenshot,
-            commands::analyze_hunting_screenshots,
+            // Item Drop Commands
+            commands::save_item_drop,
+            commands::get_item_drops,
+            commands::update_item_drop,
+            commands::delete_item_drop,
+            commands::get_monthly_item_drops,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -15,6 +15,12 @@
     {
       "identifier": "fs:allow-read-file",
       "allow": [{ "path": "**" }]
-    }
+    },
+    {
+      "identifier": "fs:allow-copy-file",
+      "allow": [{ "path": "**" }]
+    },
+    "updater:default",
+    "process:allow-restart"
   ]
 }

@@ -11,7 +11,7 @@ import { Card } from "@/components/ui/card";
 import type { Character, BossSetting, BossClear } from "@/types";
 import { bossData, formatMeso, type Difficulty } from "@/data/bossData";
 import { DifficultyBadge } from "@/components/DifficultyBadge";
-import { cn } from "@/lib/utils";
+import { cn, formatShortDate } from "@/lib/utils";
 
 interface BossClearDialogProps {
   open: boolean;
@@ -252,11 +252,6 @@ export function BossClearDialog({
     const clears = boss?.isMonthly ? monthlyClears : weeklyClears;
     const clear = clears.find((c) => c.boss_id === bossId);
     return clear?.cleared_date || null;
-  }
-
-  function formatShortDate(dateStr: string): string {
-    const [, month, day] = dateStr.split("-");
-    return `${parseInt(month)}/${parseInt(day)}`;
   }
 
   // 다음 주간 초기화일 계산 (현재 주 시작일 + 7일)

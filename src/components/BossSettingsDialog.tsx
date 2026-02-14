@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
-import { Users, Pencil, Check, X } from "lucide-react";
+import { Users, Pencil, Check, X, Save } from "lucide-react";
 import type { Character, BossSetting } from "@/types";
 import {
   bossData,
@@ -431,11 +431,12 @@ export function BossSettingsDialog({
 
         {/* 저장 버튼 */}
         <div className="flex justify-end gap-3 pt-5 border-t border-border/60">
-          <Button variant="outline" className="rounded-xl px-6" onClick={() => onOpenChange(false)}>
-            취소
-          </Button>
-          <Button className="rounded-xl px-8" onClick={handleSave} disabled={isSaving}>
+          <Button className="rounded-xl px-8 border-2 border-green-800/50 bg-green-800 hover:bg-green-900 text-white" onClick={handleSave} disabled={isSaving}>
+            <Save className="h-4 w-4 mr-2" />
             {isSaving ? "저장 중..." : "저장"}
+          </Button>
+          <Button className="rounded-xl px-6 border-2 border-red-800/50 bg-red-800 hover:bg-red-900 text-white" onClick={() => onOpenChange(false)}>
+            취소
           </Button>
         </div>
       </DialogContent>

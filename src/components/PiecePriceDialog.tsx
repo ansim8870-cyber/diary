@@ -64,7 +64,7 @@ export function PiecePriceDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <img src="/images/icons/솔 에르다 조각.png" alt="조각" className="w-6 h-6" />
+            <img src="/images/icons/솔에르다조각.png" alt="조각" className="w-6 h-6" />
             조각 가격 설정
           </DialogTitle>
         </DialogHeader>
@@ -84,7 +84,7 @@ export function PiecePriceDialog({
                   value={Math.floor(price / 10000) || ""}
                   onChange={(e) => setPrice((parseInt(e.target.value) || 0) * 10000)}
                   placeholder="650"
-                  className="w-24"
+                  className="w-24 text-right"
                 />
                 <span className="text-sm font-medium text-muted-foreground">만 메소</span>
               </div>
@@ -99,9 +99,9 @@ export function PiecePriceDialog({
                 {[500, 550, 600, 650, 700, 750].map((p) => (
                   <Button
                     key={p}
-                    variant={price === p * 10000 ? "default" : "outline"}
+                    variant="outline"
                     size="sm"
-                    className="text-xs hover:bg-accent"
+                    className="text-xs"
                     onClick={() => setPrice(p * 10000)}
                   >
                     {p}만
@@ -114,7 +114,7 @@ export function PiecePriceDialog({
               <Button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="flex-1 rounded-xl"
+                className="flex-1 rounded-xl border-2 border-green-800/50 bg-green-800 hover:bg-green-900 text-white"
               >
                 {isSaving ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -125,7 +125,7 @@ export function PiecePriceDialog({
               </Button>
               <Button
                 variant="outline"
-                className="rounded-xl"
+                className="rounded-xl border-2 border-red-800/50 bg-red-800 hover:bg-red-900 text-white"
                 onClick={() => onOpenChange(false)}
               >
                 취소

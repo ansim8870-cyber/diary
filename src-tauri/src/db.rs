@@ -1,6 +1,67 @@
-use rusqlite::{Connection, Result, params};
+use chrono::{NaiveDate, Datelike};
+use rusqlite::{Connection, OptionalExtension, Result, params};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+fn last_day_of_month(year: i32, month: u32) -> u32 {
+    NaiveDate::from_ymd_opt(
+        if month == 12 { year + 1 } else { year },
+        if month == 12 { 1 } else { month + 1 },
+        1,
+    )
+    .unwrap()
+    .pred_opt()
+    .unwrap()
+    .day()
+}
+
+fn row_to_hunting_session(row: &rusqlite::Row) -> rusqlite::Result<HuntingSession> {
+    Ok(HuntingSession {
+        id: row.get(0)?,
+        character_id: row.get(1)?,
+        date: row.get(2)?,
+        session_order: row.get(3)?,
+        start_level: row.get(4)?,
+        end_level: row.get(5)?,
+        start_exp_percent: row.get(6)?,
+        end_exp_percent: row.get(7)?,
+        exp_gained: row.get(8)?,
+        start_meso: row.get(9)?,
+        end_meso: row.get(10)?,
+        meso_gained: row.get(11)?,
+        duration_minutes: row.get(12)?,
+        sojaebi: row.get(13)?,
+        start_sol_erda: row.get(14)?,
+        end_sol_erda: row.get(15)?,
+        start_sol_erda_gauge: row.get(16)?,
+        end_sol_erda_gauge: row.get(17)?,
+        sol_erda_gained: row.get(18)?,
+        start_sol_erda_piece: row.get(19)?,
+        end_sol_erda_piece: row.get(20)?,
+        sol_erda_piece_gained: row.get(21)?,
+        sol_erda_piece_price: row.get(22)?,
+        start_screenshot: row.get(23)?,
+        end_screenshot: row.get(24)?,
+        items: row.get(25)?,
+        memo: row.get(26)?,
+        created_at: row.get(27)?,
+        updated_at: row.get(28)?,
+    })
+}
+
+fn row_to_boss_clear(row: &rusqlite::Row) -> rusqlite::Result<BossClear> {
+    Ok(BossClear {
+        id: row.get(0)?,
+        character_id: row.get(1)?,
+        boss_id: row.get(2)?,
+        difficulty: row.get(3)?,
+        cleared_date: row.get(4)?,
+        week_start_date: row.get(5)?,
+        crystal_price: row.get(6)?,
+        party_size: row.get(7)?,
+        created_at: row.get(8)?,
+    })
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -113,6 +174,17 @@ pub struct WeeklyBossSummary {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ItemDrop {
+    pub id: i64,
+    pub character_id: i64,
+    pub date: String,
+    pub item_name: String,
+    pub price: i64,
+    pub screenshot: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSettings {
     pub id: i64,
     pub sol_erda_piece_price: i64, // 기본값: 6,500,000 (650만 메소)
@@ -175,7 +247,7 @@ impl Database {
             [],
         )?;
 
-        // 기존 테이블에 컬럼이 없으면 추가
+        // 기존 테이블에 컬럼이 없으면 추가 (이미 존재하면 에러 → 의도적 무시)
         let _ = self.conn.execute(
             "ALTER TABLE characters ADD COLUMN character_exp_rate TEXT",
             [],
@@ -208,7 +280,7 @@ impl Database {
             [],
         )?;
 
-        // 솔 에르다 관련 컬럼 추가 (기존 테이블 마이그레이션)
+        // 솔 에르다 관련 컬럼 추가 (마이그레이션 - 이미 존재하면 에러 → 의도적 무시)
         let _ = self.conn.execute(
             "ALTER TABLE hunting_sessions ADD COLUMN start_sol_erda INTEGER NOT NULL DEFAULT 0",
             [],
@@ -335,12 +407,12 @@ impl Database {
         )?;
 
         // 앱 설정이 없으면 기본값 삽입
-        let count: i32 = self.conn.query_row(
-            "SELECT COUNT(*) FROM app_settings",
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM app_settings)",
             [],
             |row| row.get(0),
         )?;
-        if count == 0 {
+        if !exists {
             self.conn.execute(
                 "INSERT INTO app_settings (sol_erda_piece_price) VALUES (6500000)",
                 [],
@@ -358,6 +430,30 @@ impl Database {
             "ALTER TABLE hunting_sessions ADD COLUMN sol_erda_piece_price INTEGER NOT NULL DEFAULT 6500000",
             [],
         );
+
+        // 아이템 드랍 테이블
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS item_drops (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                item_name TEXT NOT NULL,
+                price INTEGER NOT NULL,
+                screenshot TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (character_id) REFERENCES characters(id)
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_item_drops_date ON item_drops(date)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_item_drops_character ON item_drops(character_id)",
+            [],
+        )?;
 
         Ok(())
     }
@@ -422,32 +518,62 @@ impl Database {
     }
 
     pub fn register_character(&self, character: &Character) -> Result<i64> {
+        // ocid 또는 character_name으로 기존 캐릭터 매칭
+        // - ocid 일치: 닉네임이 변경된 경우
+        // - character_name 일치: 게임 업데이트로 ocid가 변경된 경우
+        let existing_id: Option<i64> = self.conn.query_row(
+            "SELECT id FROM characters WHERE ocid = ?1 OR character_name = ?2 LIMIT 1",
+            params![character.ocid, character.character_name],
+            |row| row.get(0),
+        ).optional()?;
+
         // 기존 활성 캐릭터 비활성화
         self.conn.execute("UPDATE characters SET is_active = 0", [])?;
 
-        self.conn.execute(
-            "INSERT INTO characters (character_name, character_image, ocid, world_name,
-                                    character_class, character_level, character_exp_rate, is_active)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)",
-            params![
-                character.character_name,
-                character.character_image,
-                character.ocid,
-                character.world_name,
-                character.character_class,
-                character.character_level,
-                character.character_exp_rate,
-            ],
-        )?;
-
-        Ok(self.conn.last_insert_rowid())
+        if let Some(id) = existing_id {
+            // 같은 캐릭터 → 정보 업데이트 + 활성화 (ocid, 닉네임 모두 갱신)
+            self.conn.execute(
+                "UPDATE characters SET character_name = ?1, character_image = ?2,
+                 ocid = ?3, world_name = ?4, character_class = ?5, character_level = ?6,
+                 character_exp_rate = ?7, is_active = 1, updated_at = datetime('now')
+                 WHERE id = ?8",
+                params![
+                    character.character_name,
+                    character.character_image,
+                    character.ocid,
+                    character.world_name,
+                    character.character_class,
+                    character.character_level,
+                    character.character_exp_rate,
+                    id,
+                ],
+            )?;
+            Ok(id)
+        } else {
+            // 새 캐릭터 등록
+            self.conn.execute(
+                "INSERT INTO characters (character_name, character_image, ocid, world_name,
+                                        character_class, character_level, character_exp_rate, is_active)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)",
+                params![
+                    character.character_name,
+                    character.character_image,
+                    character.ocid,
+                    character.world_name,
+                    character.character_class,
+                    character.character_level,
+                    character.character_exp_rate,
+                ],
+            )?;
+            Ok(self.conn.last_insert_rowid())
+        }
     }
 
-    pub fn update_character(&self, id: i64, level: i32, exp_rate: &str, image: &str) -> Result<()> {
+    pub fn update_character(&self, id: i64, name: &str, level: i32, exp_rate: &str, image: &str) -> Result<()> {
         self.conn.execute(
-            "UPDATE characters SET character_level = ?1, character_exp_rate = ?2,
-             character_image = ?3, updated_at = datetime('now') WHERE id = ?4",
-            params![level, exp_rate, image, id],
+            "UPDATE characters SET character_name = ?1, character_level = ?2, character_exp_rate = ?3,
+             character_image = ?4, updated_at = datetime('now') WHERE id = ?5",
+            params![name, level, exp_rate, image, id],
         )?;
         Ok(())
     }
@@ -465,37 +591,7 @@ impl Database {
         )?;
 
         let sessions = stmt.query_map(params![character_id, date], |row| {
-            Ok(HuntingSession {
-                id: row.get(0)?,
-                character_id: row.get(1)?,
-                date: row.get(2)?,
-                session_order: row.get(3)?,
-                start_level: row.get(4)?,
-                end_level: row.get(5)?,
-                start_exp_percent: row.get(6)?,
-                end_exp_percent: row.get(7)?,
-                exp_gained: row.get(8)?,
-                start_meso: row.get(9)?,
-                end_meso: row.get(10)?,
-                meso_gained: row.get(11)?,
-                duration_minutes: row.get(12)?,
-                sojaebi: row.get(13)?,
-                start_sol_erda: row.get(14)?,
-                end_sol_erda: row.get(15)?,
-                start_sol_erda_gauge: row.get(16)?,
-                end_sol_erda_gauge: row.get(17)?,
-                sol_erda_gained: row.get(18)?,
-                start_sol_erda_piece: row.get(19)?,
-                end_sol_erda_piece: row.get(20)?,
-                sol_erda_piece_gained: row.get(21)?,
-                sol_erda_piece_price: row.get(22)?,
-                start_screenshot: row.get(23)?,
-                end_screenshot: row.get(24)?,
-                items: row.get(25)?,
-                memo: row.get(26)?,
-                created_at: row.get(27)?,
-                updated_at: row.get(28)?,
-            })
+            row_to_hunting_session(row)
         })?.collect::<Result<Vec<_>>>()?;
 
         Ok(sessions)
@@ -560,7 +656,7 @@ impl Database {
 
     pub fn get_daily_totals(&self, character_id: i64, year: i32, month: i32) -> Result<Vec<DailyTotal>> {
         let start_date = format!("{:04}-{:02}-01", year, month);
-        let end_date = format!("{:04}-{:02}-31", year, month);
+        let end_date = format!("{:04}-{:02}-{:02}", year, month, last_day_of_month(year, month as u32));
 
         let mut stmt = self.conn.prepare(
             "SELECT date,
@@ -646,37 +742,7 @@ impl Database {
         )?;
 
         let sessions = stmt.query_map([], |row| {
-            Ok(HuntingSession {
-                id: row.get(0)?,
-                character_id: row.get(1)?,
-                date: row.get(2)?,
-                session_order: row.get(3)?,
-                start_level: row.get(4)?,
-                end_level: row.get(5)?,
-                start_exp_percent: row.get(6)?,
-                end_exp_percent: row.get(7)?,
-                exp_gained: row.get(8)?,
-                start_meso: row.get(9)?,
-                end_meso: row.get(10)?,
-                meso_gained: row.get(11)?,
-                duration_minutes: row.get(12)?,
-                sojaebi: row.get(13)?,
-                start_sol_erda: row.get(14)?,
-                end_sol_erda: row.get(15)?,
-                start_sol_erda_gauge: row.get(16)?,
-                end_sol_erda_gauge: row.get(17)?,
-                sol_erda_gained: row.get(18)?,
-                start_sol_erda_piece: row.get(19)?,
-                end_sol_erda_piece: row.get(20)?,
-                sol_erda_piece_gained: row.get(21)?,
-                sol_erda_piece_price: row.get(22)?,
-                start_screenshot: row.get(23)?,
-                end_screenshot: row.get(24)?,
-                items: row.get(25)?,
-                memo: row.get(26)?,
-                created_at: row.get(27)?,
-                updated_at: row.get(28)?,
-            })
+            row_to_hunting_session(row)
         })?.collect::<Result<Vec<_>>>()?;
 
         let export = serde_json::json!({
@@ -839,8 +905,6 @@ impl Database {
     // Boss Clears
     // 목요일 기준 주간 시작일 계산
     pub fn get_week_start_date(date: &str) -> String {
-        use chrono::{NaiveDate, Datelike};
-
         let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap_or_else(|_| {
             chrono::Local::now().date_naive()
         });
@@ -859,8 +923,6 @@ impl Database {
 
     // 월초 날짜 계산 (월간 보스용)
     pub fn get_month_start_date(date: &str) -> String {
-        use chrono::{NaiveDate, Datelike};
-
         let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap_or_else(|_| {
             chrono::Local::now().date_naive()
         });
@@ -917,17 +979,7 @@ impl Database {
         )?;
 
         let clears = stmt.query_map(params![character_id, week_start_date], |row| {
-            Ok(BossClear {
-                id: row.get(0)?,
-                character_id: row.get(1)?,
-                boss_id: row.get(2)?,
-                difficulty: row.get(3)?,
-                cleared_date: row.get(4)?,
-                week_start_date: row.get(5)?,
-                crystal_price: row.get(6)?,
-                party_size: row.get(7)?,
-                created_at: row.get(8)?,
-            })
+            row_to_boss_clear(row)
         })?.collect::<Result<Vec<_>>>()?;
 
         Ok(clears)
@@ -942,17 +994,7 @@ impl Database {
         )?;
 
         let clears = stmt.query_map(params![character_id, date], |row| {
-            Ok(BossClear {
-                id: row.get(0)?,
-                character_id: row.get(1)?,
-                boss_id: row.get(2)?,
-                difficulty: row.get(3)?,
-                cleared_date: row.get(4)?,
-                week_start_date: row.get(5)?,
-                crystal_price: row.get(6)?,
-                party_size: row.get(7)?,
-                created_at: row.get(8)?,
-            })
+            row_to_boss_clear(row)
         })?.collect::<Result<Vec<_>>>()?;
 
         Ok(clears)
@@ -986,25 +1028,10 @@ impl Database {
         }
     }
 
-    pub fn get_daily_boss_income(&self, character_id: i64, date: &str) -> Result<i64> {
-        let result = self.conn.query_row(
-            "SELECT COALESCE(SUM(crystal_price / party_size), 0)
-             FROM boss_clears
-             WHERE character_id = ?1 AND cleared_date = ?2",
-            params![character_id, date],
-            |row| row.get(0)
-        );
-
-        match result {
-            Ok(income) => Ok(income),
-            Err(_) => Ok(0)
-        }
-    }
-
     // 월별 보스 클리어 요약 (달력용)
     pub fn get_monthly_boss_clears(&self, character_id: i64, year: i32, month: i32) -> Result<Vec<BossClear>> {
         let start_date = format!("{:04}-{:02}-01", year, month);
-        let end_date = format!("{:04}-{:02}-31", year, month);
+        let end_date = format!("{:04}-{:02}-{:02}", year, month, last_day_of_month(year, month as u32));
 
         let mut stmt = self.conn.prepare(
             "SELECT id, character_id, boss_id, difficulty, cleared_date, week_start_date, crystal_price, party_size, created_at
@@ -1014,17 +1041,7 @@ impl Database {
         )?;
 
         let clears = stmt.query_map(params![character_id, start_date, end_date], |row| {
-            Ok(BossClear {
-                id: row.get(0)?,
-                character_id: row.get(1)?,
-                boss_id: row.get(2)?,
-                difficulty: row.get(3)?,
-                cleared_date: row.get(4)?,
-                week_start_date: row.get(5)?,
-                crystal_price: row.get(6)?,
-                party_size: row.get(7)?,
-                created_at: row.get(8)?,
-            })
+            row_to_boss_clear(row)
         })?.collect::<Result<Vec<_>>>()?;
 
         Ok(clears)
@@ -1074,10 +1091,82 @@ impl Database {
         Ok(())
     }
 
+    // Item Drops
+    pub fn save_item_drop(&self, character_id: i64, date: &str, item_name: &str, price: i64, screenshot: Option<&str>) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO item_drops (character_id, date, item_name, price, screenshot)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![character_id, date, item_name, price, screenshot],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn get_item_drops(&self, character_id: i64, date: &str) -> Result<Vec<ItemDrop>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, character_id, date, item_name, price, screenshot, created_at
+             FROM item_drops
+             WHERE character_id = ?1 AND date = ?2
+             ORDER BY price DESC"
+        )?;
+
+        let drops = stmt.query_map(params![character_id, date], |row| {
+            Ok(ItemDrop {
+                id: row.get(0)?,
+                character_id: row.get(1)?,
+                date: row.get(2)?,
+                item_name: row.get(3)?,
+                price: row.get(4)?,
+                screenshot: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+
+        Ok(drops)
+    }
+
+    pub fn update_item_drop(&self, id: i64, item_name: &str, price: i64, screenshot: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE item_drops SET item_name = ?1, price = ?2, screenshot = ?3 WHERE id = ?4",
+            params![item_name, price, screenshot, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_item_drop(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM item_drops WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn get_monthly_item_drops(&self, character_id: i64, year: i32, month: i32) -> Result<Vec<ItemDrop>> {
+        let start_date = format!("{:04}-{:02}-01", year, month);
+        let end_date = format!("{:04}-{:02}-{:02}", year, month, last_day_of_month(year, month as u32));
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, character_id, date, item_name, price, screenshot, created_at
+             FROM item_drops
+             WHERE character_id = ?1 AND date >= ?2 AND date <= ?3
+             ORDER BY date, price DESC"
+        )?;
+
+        let drops = stmt.query_map(params![character_id, start_date, end_date], |row| {
+            Ok(ItemDrop {
+                id: row.get(0)?,
+                character_id: row.get(1)?,
+                date: row.get(2)?,
+                item_name: row.get(3)?,
+                price: row.get(4)?,
+                screenshot: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+
+        Ok(drops)
+    }
+
     // 일별 합계 (조각 포함)
     pub fn get_daily_totals_with_pieces(&self, character_id: i64, year: i32, month: i32) -> Result<Vec<(DailyTotal, i64, i64)>> {
         let start_date = format!("{:04}-{:02}-01", year, month);
-        let end_date = format!("{:04}-{:02}-31", year, month);
+        let end_date = format!("{:04}-{:02}-{:02}", year, month, last_day_of_month(year, month as u32));
 
         let mut stmt = self.conn.prepare(
             "SELECT date,

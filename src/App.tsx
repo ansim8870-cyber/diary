@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import { SetupPage } from "./pages/SetupPage";
 import { MainPage } from "./pages/MainPage";
+import { UpdateDialog } from "./components/UpdateDialog";
 import type { Settings, Character } from "./types";
 
 function App() {
@@ -67,7 +68,12 @@ function App() {
     );
   }
 
-  return <MainPage character={character} onCharacterChange={setCharacter} />;
+  return (
+    <>
+      <UpdateDialog />
+      <MainPage character={character} onCharacterChange={setCharacter} />
+    </>
+  );
 }
 
 export default App;

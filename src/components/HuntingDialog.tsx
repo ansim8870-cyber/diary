@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, Plus, Trash2, ChevronDown, ChevronUp, Sword, Pencil, Sparkles } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, ChevronDown, ChevronUp, Sword, Pencil } from "lucide-react";
 import type { HuntingSession, AppSettings, HuntingOcrResult } from "@/types";
 import { formatMeso } from "@/data/bossData";
 import { formatExpWithPercent } from "@/data/expTable";
@@ -22,6 +22,8 @@ interface HuntingDialogProps {
   characterId: number;
   characterLevel: number;
   onSaved: () => void;
+  onAddNew?: () => void;
+  startWithForm?: boolean;
   ocrResult?: HuntingOcrResult | null;
   screenshotPaths?: { start: string; end: string } | null;
 }
@@ -73,6 +75,8 @@ export function HuntingDialog({
   characterId,
   characterLevel,
   onSaved,
+  onAddNew: _onAddNew,
+  startWithForm,
   ocrResult,
   screenshotPaths,
 }: HuntingDialogProps) {
@@ -81,13 +85,16 @@ export function HuntingDialog({
   const [isSaving, setIsSaving] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newSession, setNewSession] = useState<SessionFormData>(defaultFormData);
-  const [expandedSession, setExpandedSession] = useState<number | null>(null);
+  const [_expandedSession, setExpandedSession] = useState<number | null>(null);
   const [editingSession, setEditingSession] = useState<HuntingSession | null>(null);
   const [isOcrApplied, setIsOcrApplied] = useState(false);
 
   useEffect(() => {
     if (open && date) {
       loadSessions();
+      if (startWithForm) {
+        setShowNewForm(true);
+      }
       // OCR 결과가 없을 때만 기본 설정 로드 (OCR 결과가 있으면 아래 useEffect에서 처리)
       if (!ocrResult) {
         loadDefaultSettings();
@@ -186,9 +193,6 @@ export function HuntingDialog({
         date,
       });
       setSessions(data);
-      if (data.length === 0) {
-        setShowNewForm(true);
-      }
     } catch (error) {
       console.error("Failed to load sessions:", error);
     } finally {
@@ -374,7 +378,7 @@ export function HuntingDialog({
             <Sword className="h-5 w-5 text-primary" />
             사냥 기록
           </DialogTitle>
-          <DialogDescription className="font-medium">{date.replace(/-/g, ".")}</DialogDescription>
+          <DialogDescription className="font-medium">{(() => { const [y, m, d] = date.split("-"); return `${y}년 ${parseInt(m)}월 ${parseInt(d)}일`; })()}</DialogDescription>
         </DialogHeader>
 
         {isLoading ? (
@@ -385,98 +389,76 @@ export function HuntingDialog({
         ) : (
           <div className="space-y-4">
             {/* Existing Sessions */}
-            {sessions.map((session) => {
+            {!showNewForm && sessions.map((session) => {
               const gains = calculateGains(session);
-              const isExpanded = expandedSession === session.id;
 
               return (
                 <div
                   key={session.id}
-                  className="rounded-xl border-2 border-border/60 bg-card overflow-hidden transition-all duration-200 hover:border-border"
+                  className="rounded-2xl border border-border/40 bg-gradient-to-br from-card to-card/80 overflow-hidden p-4 space-y-2.5"
                 >
-                  <button
-                    className="w-full p-4 flex items-center justify-between hover:bg-accent/50 transition-colors"
-                    onClick={() =>
-                      setExpandedSession(isExpanded ? null : session.id)
-                    }
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="inline-flex items-center justify-center h-7 w-7 rounded-lg bg-primary/10 text-primary text-sm font-bold">
-                        #{session.session_order}
-                      </span>
-                      <span className="text-sm text-muted-foreground font-medium">
-                        {session.duration_minutes}분 ({gains.sojaebi.toFixed(1)} 소재비)
+                  {/* 헤더: 세션 번호 + 소재비 + 버튼 */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center ring-1 ring-primary/20">
+                        <span className="text-xs font-extrabold text-primary">{session.session_order}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground font-medium">
+                        {gains.sojaebi.toFixed(0)} 소재비
                       </span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                    <div className="flex gap-1.5">
+                      <Button
+                        size="sm"
+                        className="rounded-lg text-xs h-7 px-2.5 border-2 border-blue-800/50 bg-blue-800 hover:bg-blue-900 text-white"
+                        onClick={() => handleEditSession(session)}
+                      >
+                        <Pencil className="h-3 w-3 mr-1" />
+                        수정
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="rounded-lg text-xs h-7 px-2.5 border-2 border-red-800/50 bg-red-800 hover:bg-red-900 text-white"
+                        onClick={() => handleDeleteSession(session.id)}
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" />
+                        삭제
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* 스탯 */}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <img src="/images/icons/경험치.png" alt="" className="w-3.5 h-3.5" />
+                      <span className="text-xs font-bold text-green-600 dark:text-green-400 truncate">
                         {formatExpWithPercent(session.end_level, gains.expGain)}
                       </span>
-                      {isExpanded ? (
-                        <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                      )}
                     </div>
-                  </button>
+                    <div className="flex items-center gap-1.5">
+                      <img src="/images/icons/메소.png" alt="" className="w-3.5 h-3.5" />
+                      <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                        +{formatMeso(gains.mesoGain)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <img src="/images/icons/솔에르다.png" alt="" className="w-3.5 h-3.5" />
+                      <span className="text-xs font-bold text-sky-600 dark:text-sky-400">
+                        +{gains.solErdaGain.toFixed(2)}개
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <img src="/images/icons/솔에르다조각.png" alt="" className="w-3.5 h-3.5" />
+                      <span className="text-xs font-bold text-violet-600 dark:text-violet-400">
+                        +{gains.solErdaPieceGain.toLocaleString()}개
+                      </span>
+                    </div>
+                  </div>
 
-                  {isExpanded && (
-                    <div className="p-4 pt-0 space-y-4 border-t border-border/60">
-                      <div className="grid grid-cols-2 gap-3 text-sm mt-3">
-                        <div className="p-2 rounded-lg bg-muted/30">
-                          <span className="text-muted-foreground text-xs font-medium">레벨</span>
-                          <p className="font-semibold">{session.start_level} → {session.end_level}</p>
-                        </div>
-                        <div className="p-2 rounded-lg bg-muted/30">
-                          <span className="text-muted-foreground text-xs font-medium">경험치</span>
-                          <p className="font-semibold">{session.start_exp_percent.toFixed(2)}% → {session.end_exp_percent.toFixed(2)}%</p>
-                        </div>
-                        <div className="p-2 rounded-lg bg-muted/30">
-                          <span className="text-muted-foreground text-xs font-medium">메소</span>
-                          <p className="font-semibold">{session.start_meso.toLocaleString()} → {session.end_meso.toLocaleString()}</p>
-                        </div>
-                        <div className="p-2 rounded-lg bg-green-500/10">
-                          <span className="text-green-600 dark:text-green-400 text-xs font-medium">획득 메소</span>
-                          <p className="font-bold text-green-600 dark:text-green-400">+{gains.mesoGain.toLocaleString()}</p>
-                        </div>
-                        {(gains.solErdaGain !== 0 || gains.solErdaPieceGain !== 0) && (
-                          <>
-                            <div className="p-2 rounded-lg bg-purple-500/10">
-                              <span className="text-purple-600 dark:text-purple-400 text-xs font-medium">솔 에르다</span>
-                              <p className="font-bold text-purple-600 dark:text-purple-400">+{gains.solErdaGain.toFixed(2)}</p>
-                            </div>
-                            <div className="p-2 rounded-lg bg-purple-500/10">
-                              <span className="text-purple-600 dark:text-purple-400 text-xs font-medium">솔 에르다 조각</span>
-                              <p className="font-bold text-purple-600 dark:text-purple-400">+{gains.solErdaPieceGain.toLocaleString()}</p>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      {session.memo && (
-                        <p className="text-sm text-muted-foreground p-3 rounded-lg bg-muted/30 italic">
-                          "{session.memo}"
-                        </p>
-                      )}
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-lg"
-                          onClick={() => handleEditSession(session)}
-                        >
-                          <Pencil className="h-4 w-4 mr-2" />
-                          수정
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          className="rounded-lg"
-                          onClick={() => handleDeleteSession(session.id)}
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          삭제
-                        </Button>
-                      </div>
+                  {/* 메모 */}
+                  {session.memo && (
+                    <div className="p-2 rounded-lg bg-muted/30 border border-border/30">
+                      <span className="text-xs text-muted-foreground italic">"{session.memo}"</span>
                     </div>
                   )}
                 </div>
@@ -485,26 +467,13 @@ export function HuntingDialog({
 
             {/* New Session Form */}
             {showNewForm ? (
-              <div className="rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-5 space-y-5">
-                <h4 className="font-bold text-lg flex items-center gap-2">
-                  {editingSession ? (
-                    <>
-                      <Pencil className="h-5 w-5 text-primary" />
-                      사냥 기록 수정 (#{editingSession.session_order})
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-5 w-5 text-primary" />
-                      새 사냥 기록
-                      {ocrResult && (
-                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400 font-semibold ml-2">
-                          <Sparkles className="h-3 w-3" />
-                          OCR 자동입력
-                        </span>
-                      )}
-                    </>
-                  )}
-                </h4>
+              <div className="space-y-5">
+                {editingSession && (
+                  <h4 className="font-bold text-lg flex items-center gap-2">
+                    <Pencil className="h-5 w-5 text-primary" />
+                    사냥 기록 수정 (#{editingSession.session_order})
+                  </h4>
+                )}
 
                 {/* 레벨 */}
                 <div className="grid grid-cols-2 gap-4">
@@ -814,7 +783,7 @@ export function HuntingDialog({
                   <Button
                     onClick={editingSession ? handleUpdateSession : handleSaveNewSession}
                     disabled={isSaving}
-                    className="flex-1 h-11 rounded-xl"
+                    className="flex-1 h-11 rounded-xl border-2 border-green-800/50 bg-green-800 hover:bg-green-900 text-white"
                   >
                     {isSaving ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -825,11 +794,14 @@ export function HuntingDialog({
                   </Button>
                   <Button
                     variant="outline"
-                    className="rounded-xl"
+                    className="h-11 rounded-xl border-2 border-red-800/50 bg-red-800 hover:bg-red-900 text-white"
                     onClick={() => {
                       setShowNewForm(false);
                       setNewSession(defaultFormData);
                       setEditingSession(null);
+                      if (startWithForm) {
+                        onOpenChange(false);
+                      }
                     }}
                   >
                     취소
@@ -837,59 +809,29 @@ export function HuntingDialog({
                 </div>
               </div>
             ) : (
-              <Button
-                variant="outline"
-                className="w-full h-12 rounded-xl border-2 border-dashed border-primary/40 hover:border-primary/60 hover:bg-primary/5"
-                onClick={() => setShowNewForm(true)}
-              >
-                <Plus className="h-5 w-5 mr-2" />
-                <span className="font-semibold">사냥 기록 추가</span>
-              </Button>
+              <>
+                {sessions.length === 0 && (
+                  <div className="py-8 text-center">
+                    <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-muted/50 mb-3">
+                      <Sword className="h-7 w-7 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">아직 사냥 기록이 없습니다</p>
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  className="w-full h-12 rounded-xl border-2 border-dashed border-primary/40 hover:border-primary/60 hover:bg-primary/5"
+                  onClick={() => {
+                    loadDefaultSettings();
+                    setShowNewForm(true);
+                  }}
+                >
+                  <Plus className="h-5 w-5 mr-2" />
+                  <span className="font-semibold">사냥 기록 추가</span>
+                </Button>
+              </>
             )}
 
-            {/* Total Summary */}
-            {sessions.length > 0 && (
-              <div className="rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-4">
-                <h4 className="font-bold text-base mb-3 flex items-center gap-2">
-                  <span className="text-lg">📊</span>
-                  일일 합계
-                </h4>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2.5 rounded-lg bg-green-500/10 border border-green-500/20">
-                    <span className="text-[11px] font-semibold text-green-600 dark:text-green-400">총 경험치</span>
-                    <p className="font-bold text-sm text-green-600 dark:text-green-400">
-                      {formatExpWithPercent(characterLevel, sessions.reduce((sum, s) => sum + s.exp_gained, 0))}
-                    </p>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                    <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">총 메소</span>
-                    <p className="font-bold text-sm text-amber-600 dark:text-amber-400">
-                      +{formatMeso(sessions.reduce((sum, s) => sum + s.meso_gained, 0))}
-                    </p>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-orange-500/10 border border-orange-500/20">
-                    <span className="text-[11px] font-semibold text-orange-600 dark:text-orange-400">
-                      총 소재비 ({sessions.length}회)
-                    </span>
-                    <p className="font-bold text-sm text-orange-600 dark:text-orange-400">
-                      {Math.round(sessions.reduce((sum, s) => sum + s.sojaebi, 0))}
-                    </p>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-sky-500/10 border border-sky-500/20">
-                    <span className="text-[11px] font-semibold text-sky-600 dark:text-sky-400">솔 에르다</span>
-                    <p className="font-bold text-sm text-sky-600 dark:text-sky-400">
-                      +{sessions.reduce((sum, s) => sum + s.sol_erda_gained, 0).toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-violet-500/10 border border-violet-500/20 col-span-2">
-                    <span className="text-[11px] font-semibold text-violet-600 dark:text-violet-400">솔 에르다 조각</span>
-                    <p className="font-bold text-sm text-violet-600 dark:text-violet-400">
-                      +{sessions.reduce((sum, s) => sum + s.sol_erda_piece_gained, 0).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </DialogContent>

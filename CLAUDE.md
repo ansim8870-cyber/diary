@@ -371,15 +371,15 @@ https://open.api.nexon.com/maplestory/v1
 
 ---
 
-## OCR 개발 상태 (2026-02-13)
+## OCR 개발 상태 (2026-02-14)
 
-### 현재 상태: 미구현 (코드 정리됨)
+### 현재 상태: 미구현 (백엔드 코드 삭제됨)
 
-OCR 기능을 다양한 방식으로 시도했으나 인식률이 낮아 코드를 정리함.
+OCR 기능을 다양한 방식으로 시도했으나 인식률이 낮아 코드를 삭제함.
 
-- 기본 타입 정의와 인터페이스만 유지 (`src-tauri/src/ocr.rs`)
+- `src-tauri/src/ocr/` 디렉토리 삭제됨 (Rust 백엔드 OCR 코드 전체 삭제)
+- OCR 관련 의존성 삭제됨 (`Cargo.toml`)
 - UI 컴포넌트는 유지 (`ScreenshotRecognitionDialog.tsx`) - 추후 재사용 가능
-- OCR 관련 의존성 주석 처리 (`Cargo.toml`)
 
 ### 이전 시도 내역 (참고용)
 
@@ -395,7 +395,6 @@ OCR 기능을 다양한 방식으로 시도했으나 인식률이 낮아 코드�
 
 ### 관련 파일
 
-- `src-tauri/src/ocr.rs`: OCR 기본 타입 정의 (미구현 스텁)
 - `src/components/ScreenshotRecognitionDialog.tsx`: 스크린샷 선택 UI
 - `다이어리사용이미지/`: 테스트용 스크린샷
 

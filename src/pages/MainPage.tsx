@@ -12,6 +12,7 @@ import {
   List,
   LayoutGrid,
   HelpCircle,
+  Gift,
 } from "lucide-react";
 import {
   Dialog,
@@ -19,14 +20,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Character, DailyTotalWithPieces, BossClear } from "@/types";
+import type { Character, DailyTotalWithPieces, BossClear, ItemDrop } from "@/types";
 import { DailyDashboardDialog } from "@/components/DailyDashboardDialog";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { BossSettingsDialog } from "@/components/BossSettingsDialog";
 import { PiecePriceDialog } from "@/components/PiecePriceDialog";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/useTheme";
-import { formatMeso } from "@/data/bossData";
+import { formatMeso, formatMesoDetailed } from "@/data/bossData";
 import { formatExpShort } from "@/data/expTable";
 
 interface MainPageProps {
@@ -46,6 +47,9 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
     new Map()
   );
   const [bossClears, setBossClears] = useState<Map<string, BossClear[]>>(
+    new Map()
+  );
+  const [itemDropsMap, setItemDropsMap] = useState<Map<string, ItemDrop[]>>(
     new Map()
   );
   const [showDashboardDialog, setShowDashboardDialog] = useState(false);
@@ -93,6 +97,21 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
         clearsMap.set(clear.cleared_date, existing);
       });
       setBossClears(clearsMap);
+
+      // 아이템 드랍 데이터 로드
+      const drops = await invoke<ItemDrop[]>("get_monthly_item_drops", {
+        characterId: character.id,
+        year,
+        month: month + 1,
+      });
+
+      const dropsMap = new Map<string, ItemDrop[]>();
+      drops.forEach((drop) => {
+        const existing = dropsMap.get(drop.date) || [];
+        existing.push(drop);
+        dropsMap.set(drop.date, existing);
+      });
+      setItemDropsMap(dropsMap);
     } catch (error) {
       console.error("Failed to load daily data:", error);
     }
@@ -160,6 +179,11 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
     }, 0);
   }
 
+  // 일별 득템 합계 계산
+  function getDailyItemDropTotal(drops: ItemDrop[]): number {
+    return drops.reduce((total, drop) => total + drop.price, 0);
+  }
+
   // 월간 총 메소 수익 계산
   const monthlyTotalIncome = useMemo(() => {
     let total = 0;
@@ -177,14 +201,21 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
       });
     });
 
-    return total;
-  }, [dailyTotals, bossClears]);
+    // 득템 메소
+    itemDropsMap.forEach((drops) => {
+      drops.forEach((drop) => {
+        total += drop.price;
+      });
+    });
 
-  const calendarDays = getCalendarDays();
+    return total;
+  }, [dailyTotals, bossClears, itemDropsMap]);
+
+  const calendarDays = useMemo(() => getCalendarDays(), [year, month]);
 
   return (
   <>
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
       <header className="border-b border-border/60 bg-card/80 backdrop-blur-sm sticky top-0 z-40">
         <div className="container mx-auto px-4 py-2 flex items-center justify-between">
@@ -249,7 +280,7 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-4">
+      <main className="container mx-auto px-4 py-4 flex-1">
         {/* Calendar Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
@@ -264,15 +295,13 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
             </Button>
           </div>
           {/* 월간 메소 수익 */}
-          {monthlyTotalIncome > 0 && (
-            <div className="flex items-center gap-2">
-              <img src="/images/icons/메소.png" alt="" className="w-5 h-5" />
-              <span className="text-sm font-semibold text-muted-foreground">월간 메소 수익:</span>
-              <span className="text-base font-bold text-amber-600 dark:text-amber-400">
-                {formatMeso(monthlyTotalIncome)}
-              </span>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <img src="/images/icons/메소.png" alt="" className="w-5 h-5" />
+            <span className="text-sm font-semibold text-muted-foreground">월간 메소 수익:</span>
+            <span className="text-base font-bold text-amber-600 dark:text-amber-400">
+              {formatMesoDetailed(monthlyTotalIncome)}
+            </span>
+          </div>
           {/* View Mode Toggle */}
           <div className="flex items-center rounded-lg overflow-hidden border-2 border-border">
             <button
@@ -325,7 +354,7 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
           <div className="grid grid-cols-7 gap-1.5">
             {calendarDays.map((day, index) => {
               if (day === null) {
-                return <div key={`empty-${index}`} className="h-24" />;
+                return <div key={`empty-${index}`} className="h-28" />;
               }
 
               const dateStr = formatDate(day);
@@ -333,20 +362,22 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
               const isSelected = dateStr === selectedDate;
               const dailyTotal = dailyTotals.get(dateStr);
               const dailyBossClears = bossClears.get(dateStr) || [];
+              const dailyItemDrops = itemDropsMap.get(dateStr) || [];
               const bossIncome = getDailyBossIncome(dailyBossClears);
+              const itemDropIncome = getDailyItemDropTotal(dailyItemDrops);
               const dayOfWeek = (index % 7);
 
-              // 상세보기용 계산: 사냥메소 + 보스메소 + 조각값
+              // 상세보기용 계산: 사냥메소 + 보스메소 + 조각값 + 득템
               const huntingMeso = dailyTotal?.total_meso_gained ?? 0;
               const pieceValue = dailyTotal ? dailyTotal.total_pieces * dailyTotal.avg_piece_price : 0;
-              const totalIncome = huntingMeso + bossIncome + pieceValue;
+              const totalIncome = huntingMeso + bossIncome + pieceValue + itemDropIncome;
 
               return (
                 <button
                   key={day}
                   onClick={() => handleDateClick(day)}
                   className={cn(
-                    "h-24 p-1.5 rounded-lg border text-left transition-all duration-200 cursor-pointer flex flex-col",
+                    "h-28 p-1.5 rounded-lg border text-left transition-all duration-200 cursor-pointer flex flex-col",
                     "hover:bg-primary/15 hover:shadow-lg hover:scale-[1.02] hover:border-primary/60",
                     isToday && "border-primary border-2 bg-primary/5 shadow-sm",
                     isSelected && "bg-accent ring-2 ring-primary ring-offset-1 border-primary",
@@ -389,7 +420,7 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
                         </div>
                         {/* 메소 - 하단 (왼쪽 정렬) */}
                         <div>
-                          {(dailyTotal || dailyBossClears.length > 0) && totalIncome > 0 && (
+                          {(dailyTotal || dailyBossClears.length > 0 || dailyItemDrops.length > 0) && totalIncome > 0 && (
                             <div className="flex flex-col items-start">
                               <span className="text-[9px] text-gray-400 font-semibold">Total</span>
                               <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 truncate flex items-center gap-0.5">
@@ -427,6 +458,12 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
                             <span className="truncate">{dailyTotal.total_pieces.toLocaleString()}개</span>
                           </p>
                         )}
+                        {dailyItemDrops.length > 0 && (
+                          <p className="text-[9px] font-bold text-pink-600 dark:text-pink-400 truncate flex items-center gap-0.5 leading-tight">
+                            <Gift className="w-2.5 h-2.5 flex-shrink-0" />
+                            <span className="truncate">{formatMeso(itemDropIncome)}</span>
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -438,7 +475,7 @@ export function MainPage({ character, onCharacterChange }: MainPageProps) {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border/40 bg-card/50 py-1 px-4">
+      <footer className="border-t border-border/40 py-1 px-4 sticky bottom-0 z-40" style={{ backgroundColor: 'hsl(var(--background))' }}>
         <div className="container mx-auto flex items-center justify-between text-xs text-muted-foreground">
           <span>made by 규복</span>
           <span>v0.1.0 개발버전</span>

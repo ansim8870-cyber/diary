@@ -340,22 +340,23 @@ export function percentToExp(level: number, percent: number): number {
 // 퍼센트를 포맷팅 (정수면 정수로, 소수면 소수점 3자리까지)
 function formatPercent(percent: number): string {
   if (Number.isInteger(percent)) {
-    return percent >= 0 ? `+${percent}%` : `${percent}%`;
+    return `${Math.abs(percent)}%`;
   }
   // 소수점 이하가 있는 경우
-  const fixed = percent.toFixed(3);
+  const fixed = Math.abs(percent).toFixed(3);
   // 불필요한 0 제거 (예: 1.200 -> 1.2, 1.000 -> 1)
   const trimmed = fixed.replace(/\.?0+$/, '');
-  return percent >= 0 ? `+${trimmed}%` : `${trimmed}%`;
+  return `${trimmed}%`;
 }
 
 // 경험치 + 퍼센트 형식으로 포맷팅
-// 예: "5조 6070억 (+11.214%)" 또는 "5조 6070억 (+11%)"
+// 예: "+5조 6070억 (11.214%)" 또는 "+5조 6070억 (11%)"
 export function formatExpWithPercent(level: number, percent: number): string {
   const exp = percentToExp(level, percent);
   const expStr = formatExp(exp);
   const percentStr = formatPercent(percent);
-  return `${expStr} (${percentStr})`;
+  const sign = percent >= 0 ? "+" : "-";
+  return `${sign}${expStr} (${percentStr})`;
 }
 
 // 퍼센트만 포맷팅 (달력용 - 짧은 버전)
