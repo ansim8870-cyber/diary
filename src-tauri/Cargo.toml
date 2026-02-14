@@ -39,3 +39,4 @@ thiserror = "1"
 
 # System directories
 dirs = "5"
+tauri-plugin-window-state = "2.4.1"

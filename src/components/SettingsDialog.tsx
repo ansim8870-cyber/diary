@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save, open as openDialog } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import {
   Dialog,
@@ -21,6 +23,7 @@ import {
   FolderOpen,
   X,
   ArrowLeft,
+  Maximize2,
 } from "lucide-react";
 import type { Character, CharacterListItem, AppSettings } from "@/types";
 
@@ -271,6 +274,23 @@ export function SettingsDialog({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-md">
+        <Button
+          variant="outline"
+          size="sm"
+          className="absolute right-14 top-4 h-7 px-2 text-[10px] gap-1 rounded-md hover:bg-transparent hover:text-current z-50"
+          onClick={async () => {
+            try {
+              const win = getCurrentWindow();
+              await win.setSize(new LogicalSize(1024, 860));
+              await win.center();
+            } catch (err) {
+              console.error("Failed to restore window size:", err);
+            }
+          }}
+        >
+          <Maximize2 className="h-3 w-3" />
+          창 크기 초기화
+        </Button>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="text-2xl">
@@ -289,9 +309,8 @@ export function SettingsDialog({
 
         {view === "main" && (
           <div className="space-y-3">
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-primary/30 hover:bg-primary/5 transition-all"
+            <button
+              className="w-full flex items-center gap-4 h-auto py-4 px-4 rounded-xl border-2 border-border bg-background hover:border-primary/30 hover:bg-primary/5 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
               onClick={handleStartCharacterChange}
               disabled={isLoading}
             >
@@ -303,19 +322,19 @@ export function SettingsDialog({
                 )}
               </div>
               <div className="text-left">
-                <p className="font-semibold">캐릭터 변경</p>
+                <p className="font-semibold text-sm">캐릭터 변경</p>
                 <p className="text-xs text-muted-foreground">
                   {isLoading
                     ? "캐릭터 목록을 불러오는 중..."
                     : "다른 캐릭터로 전환합니다"}
                 </p>
               </div>
-            </Button>
+            </button>
 
             <div className="relative">
               <Button
-                variant="outline"
-                className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-cyan-500/30 hover:bg-cyan-500/5 transition-all"
+                variant="ghost"
+                className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 border-border hover:border-cyan-500/30 hover:bg-cyan-500/5 transition-all"
                 onClick={handleSelectScreenshotFolder}
               >
                 <div className="p-2 rounded-lg bg-cyan-500/10">
@@ -344,8 +363,8 @@ export function SettingsDialog({
             </div>
 
             <Button
-              variant="outline"
-              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-green-500/30 hover:bg-green-500/5 transition-all"
+              variant="ghost"
+              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 border-border hover:border-green-500/30 hover:bg-green-500/5 transition-all"
               onClick={handleBackup}
               disabled={isLoading}
             >
@@ -355,14 +374,14 @@ export function SettingsDialog({
               <div className="text-left">
                 <p className="font-semibold">데이터 백업</p>
                 <p className="text-xs text-muted-foreground">
-                  모든 기록을 파일로 저장합니다
+                  저장했던 모든 기록을 파일로 저장합니다
                 </p>
               </div>
             </Button>
 
             <Button
-              variant="outline"
-              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-blue-500/30 hover:bg-blue-500/5 transition-all"
+              variant="ghost"
+              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 border-border hover:border-blue-500/30 hover:bg-blue-500/5 transition-all"
               onClick={handleRestore}
               disabled={isLoading}
             >
@@ -377,9 +396,8 @@ export function SettingsDialog({
               </div>
             </Button>
 
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-4 h-auto py-4 rounded-xl border-2 hover:border-destructive/30 hover:bg-destructive/5 transition-all group"
+            <button
+              className="w-full flex items-center gap-4 h-auto py-4 px-4 rounded-xl border-2 border-border bg-background hover:border-destructive/30 hover:bg-destructive/5 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
               onClick={handleReset}
               disabled={isLoading}
             >
@@ -387,12 +405,12 @@ export function SettingsDialog({
                 <Trash2 className="h-5 w-5 text-destructive" />
               </div>
               <div className="text-left">
-                <p className="font-semibold text-destructive">데이터 초기화</p>
+                <p className="font-semibold text-sm text-destructive">데이터 초기화</p>
                 <p className="text-xs text-muted-foreground">
-                  모든 데이터를 삭제합니다
+                  모든 데이터를 삭제하고 첫 설치 상태로 되돌립니다
                 </p>
               </div>
-            </Button>
+            </button>
           </div>
         )}
 

@@ -31,6 +31,13 @@
 - **Nexon Open API** (메이플스토리)
   - 캐릭터 정보 조회 (이미지, 레벨, 경험치)
 
+### 자동 업데이트
+
+- **tauri-plugin-updater** + **tauri-plugin-process**
+  - GitHub Releases 기반 자동 업데이트
+  - NSIS 설치 방식, passive 모드
+  - 서명 키 기반 업데이트 검증
+
 ---
 
 ## 핵심 기능 요구사항
@@ -46,16 +53,20 @@
 - [x] 최초 1회 등록 후 유지
 - [x] 다른 캐릭터로 재등록 가능
 - [x] API Key 변경 가능 (설정에서)
+- [x] API Key 발급 안내 (SetupPage에 단계별 설명)
 
 ### 2. 메인 UI - 달력 ✅
 
 - [x] 달력 형태의 메인 화면
 - [x] 날짜 클릭 시 모달/패널 표시
-  - 피드 버튼 (미구현)
   - 사냥 버튼 ✅
   - 보스 버튼 ✅
+  - 득템 버튼 ✅
 - [x] 각 날짜에 사냥 총합(Total) 표시
 - [x] 각 날짜에 보스 수익 표시
+- [x] 각 날짜에 득템 수익 표시
+- [x] 기본 보기 모드: 상세 (detail)
+- [x] 반응형 UI (1920x1080 ~ 4K)
 
 ### 3. 보스 설정 ✅ (신규)
 
@@ -81,10 +92,32 @@
   - 개별 사냥 기록 유지
   - 달력에는 Total 값 표기
 - [x] 일일 합계 표시 (경험치, 메소, 소재비, 솔 에르다)
-- [ ] 스크린샷 업로드 (미구현)
 - [ ] OCR 이미지 분석 (미구현)
 
-### 5. 단위 시스템
+### 5. 득템(아이템 드랍) 기록 ✅ (신규)
+
+- [x] 아이템 추가 (이름, 가격, 스크린샷 첨부)
+- [x] 아이템 수정 (이름, 가격, 스크린샷 변경)
+- [x] 아이템 삭제
+- [x] 스크린샷 첨부 및 미리보기
+- [x] 이미지 미리보기 오버레이 (확대, 다운로드)
+- [x] 대시보드 표시: 가장 비싼 아이템명 + "외 N개" + 총 가격
+- [x] 달력에 득템 총액 합산 표시
+
+### 7. 캐릭터 장비 조회 ✅ (신규)
+
+- [x] 헤더 캐릭터 이미지 클릭 → 장비 다이얼로그 표시
+- [x] Nexon Open API `/character/item-equipment` 연동
+- [x] 장비 목록 그리드 (3~4열, 부위별 정렬)
+- [x] 정렬 순서: 무기 → 보조무기 → 엠블렘 → 모자 → 상의 → ... (item_equipment_slot 기준)
+- [x] 잠재능력 등급 색상 표시 (레어=파랑, 에픽=보라, 유니크=노랑, 레전드리=초록)
+- [x] 잠재능력 + 에디셔널 잠재능력 동일 스탯 합산 표시
+- [x] 등급 표시: 부위명 옆 (예: "무기 레전드리 / 유니크")
+- [x] 아이템 클릭 시 상세 정보 (총 옵션, 잠재능력, 에디셔널, 소울)
+- [x] 상세 모드 헤더: `< 아이템명 (부위)`, X 버튼으로 목록 복귀
+- [x] 칭호 정보 표시
+
+### 8. 단위 시스템
 
 - **소재비**: 사냥 시간 단위
   - 1 소재비 = 30분
@@ -92,7 +125,7 @@
 
 ---
 
-## 데이터 모델 (초안)
+## 데이터 모델
 
 ### Settings (설정)
 
@@ -198,6 +231,18 @@
 - UNIQUE(character_id, boss_id, week_start_date)
 ```
 
+### ItemDrop (득템 기록) ✅ 구현 완료
+
+```
+- id: INTEGER PRIMARY KEY AUTOINCREMENT
+- character_id: INTEGER (FK → Character)
+- date: TEXT (날짜)
+- item_name: TEXT (아이템명)
+- price: INTEGER (가격, 메소)
+- screenshot: TEXT (스크린샷 경로, 선택사항)
+- created_at: TEXT (생성일)
+```
+
 ---
 
 ## 폴더 구조 (현재)
@@ -207,10 +252,12 @@ Maple_Diary/
 ├── src-tauri/              # Rust 백엔드
 │   ├── src/
 │   │   ├── main.rs
-│   │   ├── lib.rs          # Tauri 앱 설정
+│   │   ├── lib.rs          # Tauri 앱 설정, 플러그인 등록
 │   │   ├── db.rs           # SQLite 연결 및 데이터 모델
 │   │   ├── api.rs          # 메이플 API 호출
 │   │   └── commands.rs     # Tauri 커맨드 정의
+│   ├── capabilities/
+│   │   └── default.json    # 권한 설정 (updater, process 포함)
 │   └── Cargo.toml
 ├── src/                    # React 프론트엔드
 │   ├── components/
@@ -219,20 +266,28 @@ Maple_Diary/
 │   │   ├── BossClearDialog.tsx
 │   │   ├── DailyDashboardDialog.tsx
 │   │   ├── HuntingDialog.tsx
+│   │   ├── ItemDropDialog.tsx      # 득템 추가/목록/수정
+│   │   ├── EquipmentDialog.tsx      # 캐릭터 장비 조회
+│   │   ├── ScreenshotRecognitionDialog.tsx
+│   │   ├── UpdateDialog.tsx        # 자동 업데이트 UI
 │   │   ├── DifficultyBadge.tsx
 │   │   └── SettingsDialog.tsx
 │   ├── data/
 │   │   ├── bossData.ts     # 보스 데이터 (가격, 난이도)
 │   │   └── expTable.ts     # 경험치 테이블
 │   ├── pages/
-│   │   └── MainPage.tsx    # 메인 달력 페이지
+│   │   ├── MainPage.tsx    # 메인 달력 페이지
+│   │   └── SetupPage.tsx   # 초기 설정 (API Key 안내 포함)
 │   ├── hooks/
 │   │   └── useTheme.ts     # 테마 훅
 │   ├── types/
 │   │   └── index.ts        # TypeScript 타입 정의
 │   ├── lib/
 │   │   └── utils.ts        # 유틸리티 함수
-│   └── App.tsx
+│   └── App.tsx             # UpdateDialog 포함
+├── .github/
+│   └── workflows/
+│       └── release.yml     # GitHub Actions 자동 빌드/릴리즈
 ├── public/
 ├── package.json
 └── CLAUDE.md               # 이 파일
@@ -269,15 +324,13 @@ Maple_Diary/
 5. ✅ 주간 예상 수익 계산 (파티 인원 반영)
 6. ✅ 재화 단위 "메소" 표기 (억/만 메소)
 
-### Phase 4: 사냥 기록 ✅ 완료 (수동 입력)
+### Phase 4: 사냥 기록 ✅ 완료
 
 1. ✅ 사냥 기록 수동 입력 UI
-2. ✅ 사냥 기록 저장/삭제
+2. ✅ 사냥 기록 저장/삭제/수정
 3. ✅ 일별 중첩 및 Total 계산
 4. ✅ 솔 에르다 / 솔 에르다 조각 기록
-5. ⬜ 스크린샷 업로드 UI (추후)
-6. ⬜ OCR 이미지 분석 구현 (추후)
-7. ⬜ 주간 경험치 추이 차트 (현재 비활성화 상태)
+5. ⬜ OCR 이미지 분석 구현 (추후)
 
 ### Phase 5: 보스 클리어 ✅ 완료
 
@@ -287,12 +340,69 @@ Maple_Diary/
 4. ✅ 초기화일 표시 (주간: 목요일, 월간: 1일)
 5. ✅ 캐릭터별 데이터 분리
 
-### Phase 6: 고도화 (추후)
+### Phase 6: 득템 기록 ✅ 완료
 
-1. ⬜ 피드 기능
+1. ✅ 아이템 드랍 추가/수정/삭제 (이름, 가격, 스크린샷)
+2. ✅ 스크린샷 첨부 및 이미지 미리보기 오버레이
+3. ✅ 대시보드에 득템 요약 표시 (가장 비싼 아이템명 외 N개 + 총 가격)
+4. ✅ 달력에 득템 총액 합산
+5. ✅ 대시보드에서 득템 영역 클릭 시 목록 다이얼로그
+
+### Phase 7: 자동 업데이트 ✅ 완료
+
+1. ✅ tauri-plugin-updater + tauri-plugin-process 설정
+2. ✅ 서명 키 생성 및 설정
+3. ✅ GitHub Actions 워크플로우 (release.yml)
+4. ✅ 업데이트 확인 UI (UpdateDialog)
+5. ✅ v* 태그 기반 릴리즈
+
+### Phase 8: 캐릭터 장비 조회 ✅ 완료
+
+1. ✅ Nexon Open API `/character/item-equipment` 연동 (Rust 백엔드)
+2. ✅ 장비 목록 다이얼로그 (그리드 레이아웃, 부위별 정렬)
+3. ✅ 잠재능력 + 에디셔널 동일 스탯 합산
+4. ✅ 아이템 상세 보기 (총 옵션, 잠재, 소울)
+5. ✅ 헤더 캐릭터 이미지 클릭으로 진입
+
+### Phase 9: 고도화 (추후)
+
+1. ⬜ OCR 스크린샷 인식 기능
 2. ⬜ 통계/차트
-3. ⬜ 보스/난이도 이미지 추가
-4. ⬜ 사냥 기록 수정 기능
+
+---
+
+## 자동 업데이트 시스템
+
+### 구성
+
+- **tauri-plugin-updater**: 업데이트 확인 및 다운로드
+- **tauri-plugin-process**: 앱 재시작 (relaunch)
+- **GitHub Releases**: 업데이트 배포 엔드포인트
+- **NSIS**: Windows 설치 패키지 (passive 모드)
+
+### 서명 키
+
+- 공개 키: `tauri.conf.json` → `plugins.updater.pubkey`에 저장
+- 비밀 키: GitHub Secrets (`TAURI_SIGNING_PRIVATE_KEY`)에 저장
+- 비밀번호: 없음 (빈 문자열)
+
+### 릴리즈 방법
+
+1. `tauri.conf.json`에서 version 업데이트
+2. `git tag v0.0.7` (버전에 맞는 태그 생성)
+3. `git push origin v0.0.7` (태그 푸시)
+4. GitHub Actions가 자동으로 빌드 → 릴리즈 생성
+
+### 업데이트 엔드포인트
+
+```
+https://github.com/ansim8870-cyber/diary/releases/latest/download/latest.json
+```
+
+### 권한 (capabilities/default.json)
+
+- `updater:default`
+- `process:allow-restart`
 
 ---
 
@@ -314,10 +424,15 @@ https://open.api.nexon.com/maplestory/v1
    - GET `/character/basic?ocid={ocid}`
    - Response: 캐릭터 이름, 레벨, 경험치, 이미지 등
 
+3. **캐릭터 장비 정보**
+   - GET `/character/item-equipment?ocid={ocid}`
+   - Response: 장비 목록 (아이콘, 이름, 스타포스, 잠재능력, 총 옵션 등)
+   - 주의: `item_equipment_part`는 직업별 무기명 (창, 쇠사슬 등), `item_equipment_slot`이 표준 슬롯명 (무기, 보조무기 등)
+
 ### API Key
 
 - Nexon Open API에서 사용자가 직접 발급
-- 앱 최초 실행 시 사용자가 입력
+- 앱 최초 실행 시 사용자가 입력 (SetupPage에 발급 안내 포함)
 - 로컬 SQLite DB에 암호화 저장
 - 설정에서 변경 가능
 
@@ -333,19 +448,25 @@ https://open.api.nexon.com/maplestory/v1
 
 ## 현재 상태 및 다음 작업
 
-### 현재 완료된 기능 (v0.0.6)
+### 현재 완료된 기능 (v0.0.7)
 
 - Tauri v2 + React + TypeScript 기반 앱
-- SQLite 데이터베이스 (settings, characters, hunting_sessions, boss_settings, boss_clears)
+- SQLite 데이터베이스 (settings, characters, hunting_sessions, boss_settings, boss_clears, item_drops)
 - 메이플스토리 API 연동 (캐릭터 조회, 경험치 히스토리)
-- 달력 기반 메인 UI
+- 달력 기반 메인 UI (기본 상세 모드)
 - 다크/라이트 테마
 - 보스 설정 (난이도 선택, 가격 수정, 파티 인원, 예상 수익)
-- 데이터 백업/복원/초기화
+- **데이터 백업/복원** (전체 DB 백업: settings, characters, hunting_sessions, boss_settings, boss_clears, item_drops, app_settings)
+- **데이터 초기화** (모든 데이터 삭제, 첫 설치 상태로 복원)
 - **사냥 기록 수동 입력** (레벨, 경험치, 메소, 솔 에르다, 솔 에르다 조각, 소재비)
 - **솔 에르다 시스템** (개수 0-20, 게이지 0-1000, 조각 별도 기록)
 - **보스 클리어 기록** (주간/월간 체크리스트, 프로그레스 바, 초기화일 표시)
-- **캐릭터별 데이터 분리** (사냥, 보스 클리어 모두 캐릭터별 저장)
+- **캐릭터별 데이터 분리** (사냥, 보스 클리어, 득템 모두 캐릭터별 저장)
+- **득템(아이템 드랍) 기록** (추가/수정/삭제, 스크린샷 첨부, 이미지 미리보기)
+- **자동 업데이트 시스템** (GitHub Releases 기반, tauri-plugin-updater)
+- **반응형 UI** (1920x1080 ~ 4K, 미디어 쿼리 기반)
+- **API Key 발급 안내** (SetupPage에 단계별 설명)
+- **캐릭터 장비 조회** (Nexon API 연동, 잠재능력 합산, 상세 보기)
 
 ### UI/UX 개선 사항
 
@@ -355,19 +476,23 @@ https://open.api.nexon.com/maplestory/v1
 - 보스 클리어 모달 그리드 레이아웃 (보스 설정과 일관성)
 - 체크박스 클릭 시 스크롤 위치 유지
 - 보스 목록 정렬 (월간 우선, 가격 내림차순)
-
-### 대기 중인 사용자 제공 항목
-
-- 보스 이미지 ✅ (제공 완료)
-- 난이도 이미지
+- 이미지 미리보기 오버레이: Radix DialogPrimitive 기반 (포커스 트랩 충돌 해결)
+- 대시보드 보스 클리어 영역 클릭 시 BossClearDialog 열기
+- 대시보드 득템 영역: 가장 비싼 아이템명 + "외 N개" + 총 가격 (긴 이름 truncate)
+- 저장 버튼 통일: Save 아이콘 + 초록색 계열 (border-green-800)
+- 다이얼로그 헤더: 제목 + 날짜 (DialogDescription)
+- 스크린샷 선택 UI: 도움말 텍스트, 2개 이상 시 마지막 2개 자동 선택
+- 반응형 달력: CSS 미디어 쿼리 (1280px, 1920px, 2560px 브레이크포인트)
+- 달력 기본 보기 모드: 상세 (detail)
+- 득템 아이콘 통일: 🎁 이모지 (캘린더, 대시보드, 득템 추가/목록, 수익 차트)
+- 보스 설정 13개 초과 시 저장 비활성화
+- 창 크기 상태 저장/복원 (tauri-plugin-window-state)
 
 ### 다음 작업 후보
 
 1. OCR 스크린샷 인식 기능 재구현
-2. 주간 경험치 추이 차트 활성화
-3. 피드 기능
-4. 사냥 기록 수정 기능
-5. 통계/차트
+2. 통계/차트
+3. 잠재능력 옵션 파싱 포맷: `"스탯명 +값%"` 또는 `"스탯명 -값초"` (콜론 없음)
 
 ---
 
@@ -395,13 +520,29 @@ OCR 기능을 다양한 방식으로 시도했으나 인식률이 낮아 코드�
 
 ### 관련 파일
 
-- `src/components/ScreenshotRecognitionDialog.tsx`: 스크린샷 선택 UI
+- `src/components/ScreenshotRecognitionDialog.tsx`: 스크린샷 선택 UI (도움말 텍스트, 자동 선택 포함)
 - `다이어리사용이미지/`: 테스트용 스크린샷
 
 ### 이전 시도에서 성공한 항목 (재구현 시 참고)
 
 - **레벨**: `LⅥ287`, `Lv.287` 등 다양한 패턴 인식 성공
 - **메소**: `29 역 1309 만 9366` (억→역 오타 처리 포함) 인식 성공
+
+---
+
+## 기술 노트
+
+### Radix Dialog 포커스 트랩 문제
+
+`createPortal`로 만든 오버레이는 Radix Dialog의 포커스 트랩에 의해 클릭이 차단됨.
+해결: `@radix-ui/react-dialog`의 `DialogPrimitive`를 사용하여 오버레이를 별도의 Radix Dialog로 구현.
+
+### 반응형 UI 구현
+
+- `App.css`에 `.calendar-cell` 클래스: `height: calc((100vh - 220px) / 6.5)`
+- 미디어 쿼리 브레이크포인트: 1280px, 1920px, 2560px
+- 커스텀 클래스: `cal-text-xs`, `cal-text-sm`, `cal-icon-sm`, `cal-icon-xs`
+- 컨테이너: `max-w` 제한 없이 패딩만 적용 (`px-4 xl:px-8 2xl:px-12`)
 
 ## Rules
 

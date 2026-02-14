@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "메이플 일기장",
+  "productName": "메이플 캘린더",
   "version": "0.0.7",
   "identifier": "com.maple.diary",
   "build": {
@@ -12,10 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "메이플 일기장",
+        "title": "메이플 캘린더",
         "width": 1024,
         "height": 860,
-        "resizable": false,
+        "minWidth": 1024,
+        "minHeight": 860,
+        "resizable": true,
         "center": true
       }
     ],

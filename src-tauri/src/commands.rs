@@ -195,6 +195,24 @@ pub async fn refresh_character(
         .ok_or_else(|| "캐릭터를 찾을 수 없습니다".to_string())
 }
 
+// Character Equipment Command
+#[tauri::command]
+pub async fn get_character_equipment(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let (character, api_key) = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let char = db.get_active_character().map_err(|e| e.to_string())?
+            .ok_or("활성 캐릭터가 없습니다")?;
+        let settings = db.get_settings().map_err(|e| e.to_string())?
+            .ok_or("API Key가 설정되지 않았습니다")?;
+        (char, settings.api_key)
+    };
+
+    let api = MapleApi::new(&api_key);
+    api.get_character_equipment(&character.ocid).await.map_err(|e| e.to_string())
+}
+
 // Hunting Session Commands
 #[tauri::command]
 pub fn get_hunting_sessions(
@@ -646,4 +664,14 @@ pub fn get_monthly_item_drops(
 ) -> Result<Vec<ItemDrop>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.get_monthly_item_drops(character_id, year, month).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_months_with_data(
+    state: State<AppState>,
+    character_id: i64,
+    year: i32,
+) -> Result<Vec<i32>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_months_with_data(character_id, year).map_err(|e| e.to_string())
 }

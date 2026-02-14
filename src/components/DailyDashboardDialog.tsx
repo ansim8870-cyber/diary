@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Sword, Gift, Skull, Star } from "lucide-react";
+import { Sword, Skull, Star } from "lucide-react";
 import type { DailyTotalWithPieces, Character, BossSetting, BossClear, HuntingSession, HuntingOcrResult, ItemDrop } from "@/types";
 import { HuntingDialog } from "./HuntingDialog";
 import { BossClearDialog } from "./BossClearDialog";
@@ -175,7 +175,7 @@ export function DailyDashboardDialog({
               className="flex-col h-auto py-3 gap-1.5 rounded-xl border-2 border-primary/50 shadow-lg hover:scale-105 hover:shadow-xl transition-all duration-200"
               onClick={() => setShowItemDropAddDialog(true)}
             >
-              <Gift className="h-5 w-5" />
+              <span className="text-lg">🎁</span>
               <span className="text-xs font-semibold">득템</span>
             </Button>
           </div>
@@ -205,7 +205,10 @@ export function DailyDashboardDialog({
               {/* Hunting Section */}
               <fieldset
                 className="rounded-xl border-2 border-orange-500/20 p-2.5 pt-1.5 cursor-pointer hover:border-orange-500/40 hover:bg-orange-500/5 transition-all duration-200"
-                onClick={() => setShowHuntingDialog(true)}
+                onClick={() => {
+                  setHuntingStartWithForm(false);
+                  setShowHuntingDialog(true);
+                }}
               >
                 <legend className="flex items-center gap-1.5 px-2 text-orange-600 dark:text-orange-400">
                   <img src="/images/icons/재획비.png" alt="" className="w-3.5 h-3.5" />
@@ -263,7 +266,10 @@ export function DailyDashboardDialog({
               {/* Boss Section */}
               <div className="grid grid-cols-2 gap-2">
                 {/* Boss Clear Summary */}
-                <div className="rounded-xl border-2 border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-purple-500/10 p-2.5">
+                <div
+                  className="rounded-xl border-2 border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-purple-500/10 p-2.5 cursor-pointer hover:border-purple-500/40 hover:bg-purple-500/10 transition-all duration-200"
+                  onClick={() => setShowBossDialog(true)}
+                >
                   <div className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400 mb-1.5">
                     <img src="/images/icons/주간결정석.png" alt="" className="w-3.5 h-3.5" />
                     <span className="text-[11px] font-semibold">보스 클리어 (결정석 {todayBossClears.length}개)</span>
@@ -279,7 +285,7 @@ export function DailyDashboardDialog({
                   onClick={() => setShowItemDropListDialog(true)}
                 >
                   <div className="flex items-center gap-1.5 text-pink-600 dark:text-pink-400 mb-1.5 min-w-0">
-                    <Gift className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="text-xs flex-shrink-0">🎁</span>
                     <span className="text-[11px] font-semibold flex-shrink-0">득템</span>
                     {mostExpensiveDrop && (
                       <span className="text-[11px] font-semibold truncate min-w-0">({mostExpensiveDrop.item_name}{itemDrops.length > 1 ? ` 외 ${itemDrops.length - 1}개` : ""})</span>

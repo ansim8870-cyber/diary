@@ -10,7 +10,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Camera, FolderOpen, Loader2, Edit3, Search, FolderSearch, Scan } from "lucide-react";
+import { Camera, FolderOpen, Loader2, Edit3, Search, FolderSearch, Scan, HelpCircle } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import type { AppSettings, ScreenshotFile, HuntingOcrResult } from "@/types";
 
@@ -166,10 +166,10 @@ export function ScreenshotRecognitionDialog({
       console.log("[DEBUG] 필터링 후 스크린샷 수:", filtered.length);
       setScreenshots(filtered);
 
-      // 정확히 2개 감지 시 자동 선택 및 스캔 중지
-      if (filtered.length === 2 && !autoDetected) {
-        setSelectedStart(filtered[0]); // 시간순 첫 번째 = 시작
-        setSelectedEnd(filtered[1]);   // 시간순 두 번째 = 종료
+      // 2개 이상 감지 시 가장 나중 시간대 2개를 시작/종료로 자동 선택
+      if (filtered.length >= 2 && !autoDetected) {
+        setSelectedStart(filtered[filtered.length - 2]); // 뒤에서 두 번째 = 시작
+        setSelectedEnd(filtered[filtered.length - 1]);   // 마지막 = 종료
         setAutoDetected(true);
         stopScanning();
       }
@@ -270,6 +270,15 @@ export function ScreenshotRecognitionDialog({
           </DialogTitle>
           <DialogDescription>{formatDate(date)}</DialogDescription>
         </DialogHeader>
+
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 border border-border/60 text-xs text-muted-foreground">
+          <HelpCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-primary" />
+          <p>
+            메이플스토리에서 스크린샷을 찍으면
+            <span className="font-medium text-foreground/70"> Maple_YYMMDD_HHMMSS.jpg</span> 형식으로 저장됩니다.
+            이 파일명을 기반으로 해당 날짜의 스크린샷을 자동으로 찾으며, 여러 장이 있을 경우 가장 마지막 2장을 시작/종료로 선택합니다.
+          </p>
+        </div>
 
         {/* 폴더 미설정 시 */}
         {!screenshotFolder ? (
@@ -448,7 +457,7 @@ export function ScreenshotRecognitionDialog({
             {/* 버튼 영역 */}
             <div className="flex gap-2 pt-2 border-t">
               <Button
-                className="flex-1 rounded-xl"
+                className="flex-1 rounded-xl border-2 border-green-800/50"
                 disabled={!selectedStart || !selectedEnd || isAnalyzing}
                 onClick={handleConfirmSelection}
               >

@@ -14,6 +14,7 @@ pub fn run() {
     let database = Database::new().expect("Failed to initialize database");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -30,6 +31,7 @@ pub fn run() {
             commands::search_character,
             commands::get_character_list,
             commands::refresh_character,
+            commands::get_character_equipment,
             commands::get_hunting_sessions,
             commands::save_hunting_session,
             commands::update_hunting_session,
@@ -64,6 +66,7 @@ pub fn run() {
             commands::update_item_drop,
             commands::delete_item_drop,
             commands::get_monthly_item_drops,
+            commands::get_months_with_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -728,9 +728,31 @@ impl Database {
     // Data Export/Import/Reset
     pub fn export_data(&self) -> Result<String> {
         let settings = self.get_settings()?;
-        let character = self.get_active_character()?;
+        let app_settings = self.get_app_settings()?;
 
-        // 모든 사냥 세션 가져오기
+        // 모든 캐릭터
+        let mut char_stmt = self.conn.prepare(
+            "SELECT id, character_name, character_image, ocid, world_name, character_class,
+                    character_level, character_exp_rate, is_active, created_at, updated_at
+             FROM characters ORDER BY id"
+        )?;
+        let characters = char_stmt.query_map([], |row| {
+            Ok(Character {
+                id: row.get(0)?,
+                character_name: row.get(1)?,
+                character_image: row.get(2)?,
+                ocid: row.get(3)?,
+                world_name: row.get(4)?,
+                character_class: row.get(5)?,
+                character_level: row.get(6)?,
+                character_exp_rate: row.get(7)?,
+                is_active: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+
+        // 모든 사냥 세션
         let mut stmt = self.conn.prepare(
             "SELECT id, character_id, date, session_order, start_level, end_level,
                     start_exp_percent, end_exp_percent, exp_gained, start_meso, end_meso,
@@ -740,17 +762,75 @@ impl Database {
                     start_screenshot, end_screenshot, items, memo, created_at, updated_at
              FROM hunting_sessions ORDER BY date, session_order"
         )?;
-
         let sessions = stmt.query_map([], |row| {
             row_to_hunting_session(row)
         })?.collect::<Result<Vec<_>>>()?;
 
+        // 모든 보스 설정
+        let mut boss_stmt = self.conn.prepare(
+            "SELECT id, character_id, boss_id, difficulty, party_size, enabled, created_at, updated_at
+             FROM boss_settings ORDER BY id"
+        )?;
+        let boss_settings = boss_stmt.query_map([], |row| {
+            Ok(BossSetting {
+                id: row.get(0)?,
+                character_id: row.get(1)?,
+                boss_id: row.get(2)?,
+                difficulty: row.get(3)?,
+                party_size: row.get(4)?,
+                enabled: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+
+        // 모든 보스 클리어
+        let mut clear_stmt = self.conn.prepare(
+            "SELECT id, character_id, boss_id, difficulty, cleared_date, week_start_date,
+                    crystal_price, party_size, created_at
+             FROM boss_clears ORDER BY id"
+        )?;
+        let boss_clears = clear_stmt.query_map([], |row| {
+            Ok(BossClear {
+                id: row.get(0)?,
+                character_id: row.get(1)?,
+                boss_id: row.get(2)?,
+                difficulty: row.get(3)?,
+                cleared_date: row.get(4)?,
+                week_start_date: row.get(5)?,
+                crystal_price: row.get(6)?,
+                party_size: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+
+        // 모든 득템 기록
+        let mut drop_stmt = self.conn.prepare(
+            "SELECT id, character_id, date, item_name, price, screenshot, created_at
+             FROM item_drops ORDER BY id"
+        )?;
+        let item_drops = drop_stmt.query_map([], |row| {
+            Ok(ItemDrop {
+                id: row.get(0)?,
+                character_id: row.get(1)?,
+                date: row.get(2)?,
+                item_name: row.get(3)?,
+                price: row.get(4)?,
+                screenshot: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+
         let export = serde_json::json!({
-            "version": 1,
+            "version": 2,
             "exported_at": chrono::Utc::now().to_rfc3339(),
             "settings": settings,
-            "character": character,
+            "app_settings": app_settings,
+            "characters": characters,
             "hunting_sessions": sessions,
+            "boss_settings": boss_settings,
+            "boss_clears": boss_clears,
+            "item_drops": item_drops,
         });
 
         Ok(serde_json::to_string_pretty(&export).unwrap_or_default())
@@ -760,6 +840,16 @@ impl Database {
         let data: serde_json::Value = serde_json::from_str(json_data)
             .map_err(|_| rusqlite::Error::InvalidQuery)?;
 
+        let version = data.get("version").and_then(|v| v.as_i64()).unwrap_or(1);
+
+        // 모든 데이터 삭제 (전체 복원)
+        self.conn.execute("DELETE FROM item_drops", [])?;
+        self.conn.execute("DELETE FROM boss_clears", [])?;
+        self.conn.execute("DELETE FROM boss_settings", [])?;
+        self.conn.execute("DELETE FROM hunting_sessions", [])?;
+        self.conn.execute("DELETE FROM characters", [])?;
+        self.conn.execute("DELETE FROM settings", [])?;
+
         // API Key 복원
         if let Some(settings) = data.get("settings") {
             if let Some(api_key) = settings.get("api_key").and_then(|v| v.as_str()) {
@@ -767,31 +857,65 @@ impl Database {
             }
         }
 
+        // 앱 설정 복원 (version 2)
+        if let Some(app_settings) = data.get("app_settings") {
+            if !app_settings.is_null() {
+                let price = app_settings.get("sol_erda_piece_price").and_then(|v| v.as_i64()).unwrap_or(6500000);
+                let folder = app_settings.get("screenshot_folder_path").and_then(|v| v.as_str());
+                self.save_app_settings(price)?;
+                self.save_screenshot_folder_path(folder)?;
+            }
+        }
+
         // 캐릭터 복원
-        if let Some(char_data) = data.get("character") {
-            if !char_data.is_null() {
-                let character = Character {
-                    id: 0,
-                    character_name: char_data.get("character_name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    character_image: char_data.get("character_image").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    ocid: char_data.get("ocid").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    world_name: char_data.get("world_name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    character_class: char_data.get("character_class").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    character_level: char_data.get("character_level").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-                    character_exp_rate: char_data.get("character_exp_rate").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    is_active: true,
-                    created_at: String::new(),
-                    updated_at: String::new(),
-                };
-                self.register_character(&character)?;
+        if version >= 2 {
+            // v2: 모든 캐릭터 배열
+            if let Some(characters) = data.get("characters").and_then(|v| v.as_array()) {
+                for char_data in characters {
+                    let is_active = char_data.get("is_active").and_then(|v| v.as_bool())
+                        .or_else(|| char_data.get("is_active").and_then(|v| v.as_i64()).map(|n| n == 1))
+                        .unwrap_or(false);
+                    self.conn.execute(
+                        "INSERT INTO characters (character_name, character_image, ocid, world_name,
+                                                character_class, character_level, character_exp_rate, is_active)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        params![
+                            char_data.get("character_name").and_then(|v| v.as_str()).unwrap_or_default(),
+                            char_data.get("character_image").and_then(|v| v.as_str()).unwrap_or_default(),
+                            char_data.get("ocid").and_then(|v| v.as_str()).unwrap_or_default(),
+                            char_data.get("world_name").and_then(|v| v.as_str()).unwrap_or_default(),
+                            char_data.get("character_class").and_then(|v| v.as_str()).unwrap_or_default(),
+                            char_data.get("character_level").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                            char_data.get("character_exp_rate").and_then(|v| v.as_str()),
+                            if is_active { 1 } else { 0 },
+                        ],
+                    )?;
+                }
+            }
+        } else {
+            // v1: 단일 캐릭터 (하위 호환)
+            if let Some(char_data) = data.get("character") {
+                if !char_data.is_null() {
+                    let character = Character {
+                        id: 0,
+                        character_name: char_data.get("character_name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                        character_image: char_data.get("character_image").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                        ocid: char_data.get("ocid").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                        world_name: char_data.get("world_name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                        character_class: char_data.get("character_class").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                        character_level: char_data.get("character_level").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                        character_exp_rate: char_data.get("character_exp_rate").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        is_active: true,
+                        created_at: String::new(),
+                        updated_at: String::new(),
+                    };
+                    self.register_character(&character)?;
+                }
             }
         }
 
         // 사냥 세션 복원
         if let Some(sessions) = data.get("hunting_sessions").and_then(|v| v.as_array()) {
-            // 기존 세션 삭제
-            self.conn.execute("DELETE FROM hunting_sessions", [])?;
-
             for session_data in sessions {
                 let session = HuntingSession {
                     id: 0,
@@ -828,14 +952,67 @@ impl Database {
             }
         }
 
+        // 보스 설정 복원 (version 2)
+        if let Some(boss_settings) = data.get("boss_settings").and_then(|v| v.as_array()) {
+            for bs in boss_settings {
+                let setting = BossSetting {
+                    id: 0,
+                    character_id: bs.get("character_id").and_then(|v| v.as_i64()).unwrap_or(1),
+                    boss_id: bs.get("boss_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                    difficulty: bs.get("difficulty").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                    party_size: bs.get("party_size").and_then(|v| v.as_i64()).unwrap_or(1) as i32,
+                    enabled: bs.get("enabled").and_then(|v| v.as_bool())
+                        .or_else(|| bs.get("enabled").and_then(|v| v.as_i64()).map(|n| n == 1))
+                        .unwrap_or(true),
+                    created_at: String::new(),
+                    updated_at: String::new(),
+                };
+                self.save_boss_setting(&setting)?;
+            }
+        }
+
+        // 보스 클리어 복원 (version 2)
+        if let Some(boss_clears) = data.get("boss_clears").and_then(|v| v.as_array()) {
+            for bc in boss_clears {
+                self.conn.execute(
+                    "INSERT INTO boss_clears (character_id, boss_id, difficulty, cleared_date, week_start_date, crystal_price, party_size)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        bc.get("character_id").and_then(|v| v.as_i64()).unwrap_or(1),
+                        bc.get("boss_id").and_then(|v| v.as_str()).unwrap_or_default(),
+                        bc.get("difficulty").and_then(|v| v.as_str()).unwrap_or_default(),
+                        bc.get("cleared_date").and_then(|v| v.as_str()).unwrap_or_default(),
+                        bc.get("week_start_date").and_then(|v| v.as_str()).unwrap_or_default(),
+                        bc.get("crystal_price").and_then(|v| v.as_i64()).unwrap_or(0),
+                        bc.get("party_size").and_then(|v| v.as_i64()).unwrap_or(1) as i32,
+                    ],
+                )?;
+            }
+        }
+
+        // 득템 기록 복원 (version 2)
+        if let Some(item_drops) = data.get("item_drops").and_then(|v| v.as_array()) {
+            for item in item_drops {
+                self.save_item_drop(
+                    item.get("character_id").and_then(|v| v.as_i64()).unwrap_or(1),
+                    item.get("date").and_then(|v| v.as_str()).unwrap_or_default(),
+                    item.get("item_name").and_then(|v| v.as_str()).unwrap_or_default(),
+                    item.get("price").and_then(|v| v.as_i64()).unwrap_or(0),
+                    item.get("screenshot").and_then(|v| v.as_str()),
+                )?;
+            }
+        }
+
         Ok(())
     }
 
     pub fn reset_data(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM item_drops", [])?;
+        self.conn.execute("DELETE FROM boss_clears", [])?;
+        self.conn.execute("DELETE FROM boss_settings", [])?;
         self.conn.execute("DELETE FROM hunting_sessions", [])?;
         self.conn.execute("DELETE FROM characters", [])?;
         self.conn.execute("DELETE FROM settings", [])?;
-        self.conn.execute("DELETE FROM boss_settings", [])?;
         Ok(())
     }
 
@@ -1196,5 +1373,27 @@ impl Database {
         })?.collect::<Result<Vec<_>>>()?;
 
         Ok(totals)
+    }
+
+    // 특정 년도에서 데이터가 있는 월 목록 반환
+    pub fn get_months_with_data(&self, character_id: i64, year: i32) -> Result<Vec<i32>> {
+        let start_date = format!("{:04}-01-01", year);
+        let end_date = format!("{:04}-12-31", year);
+
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT CAST(substr(date, 6, 2) AS INTEGER) as month FROM (
+                SELECT date FROM hunting_sessions WHERE character_id = ?1 AND date BETWEEN ?2 AND ?3
+                UNION
+                SELECT cleared_date as date FROM boss_clears WHERE character_id = ?1 AND cleared_date BETWEEN ?2 AND ?3
+                UNION
+                SELECT date FROM item_drops WHERE character_id = ?1 AND date BETWEEN ?2 AND ?3
+            ) ORDER BY month"
+        )?;
+
+        let months = stmt.query_map(params![character_id, start_date, end_date], |row| {
+            row.get::<_, i32>(0)
+        })?.collect::<Result<Vec<_>>>()?;
+
+        Ok(months)
     }
 }

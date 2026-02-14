@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Gift, Trash2, ImageIcon, X, Download, ZoomIn, Pencil, Check, Save } from "lucide-react";
+import { Trash2, ImageIcon, X, Download, ZoomIn, Pencil, Check, Save } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { ItemDrop } from "@/types";
 import { formatMeso, formatMesoDetailed } from "@/data/bossData";
@@ -277,7 +277,7 @@ export function ItemDropAddDialog({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Gift className="h-5 w-5 text-pink-500" />
+              <span className="text-lg">🎁</span>
               득템 추가
             </DialogTitle>
             <DialogDescription className="font-medium">{formatDate(date)}</DialogDescription>
@@ -299,7 +299,6 @@ export function ItemDropAddDialog({
                 value={price}
                 onChange={(e) => handlePriceChange(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="text-right"
               />
             </div>
 
@@ -494,7 +493,7 @@ export function ItemDropListDialog({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Gift className="h-5 w-5 text-pink-500" />
+              <span className="text-lg">🎁</span>
               득템 목록
             </DialogTitle>
             <DialogDescription className="font-medium">{formatDate(date)}</DialogDescription>
@@ -522,7 +521,6 @@ export function ItemDropListDialog({
                         value={editPrice}
                         onChange={(e) => handleEditPriceChange(e.target.value)}
                         onKeyDown={handleEditKeyDown}
-                        className="text-right"
                       />
                       {/* 스크린샷 수정 */}
                       <div className="space-y-2">
@@ -622,7 +620,7 @@ export function ItemDropListDialog({
             </div>
           ) : (
             <div className="py-8 text-center">
-              <Gift className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+              <span className="text-3xl mx-auto mb-2 block w-fit">🎁</span>
               <p className="text-sm text-muted-foreground">
                 등록된 아이템이 없습니다
               </p>
@@ -634,7 +632,7 @@ export function ItemDropListDialog({
             <div className="rounded-xl border-2 border-pink-500/20 bg-gradient-to-br from-pink-500/5 to-pink-500/10 p-2.5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-pink-600 dark:text-pink-400">
-                  <Gift className="w-3.5 h-3.5" />
+                  <span className="text-xs">🎁</span>
                   <span className="text-[11px] font-semibold">
                     총 득템 ({itemDrops.length}건)
                   </span>

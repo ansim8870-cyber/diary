@@ -192,17 +192,26 @@ export function SetupPage({ existingApiKey, onComplete }: SetupPageProps) {
                   disabled={isLoading}
                   className="rounded-xl"
                 />
-                <p className="text-xs text-muted-foreground">
-                  <a
-                    href="https://openapi.nexon.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    Nexon Open API
-                  </a>
-                  에서 발급받을 수 있습니다.
-                </p>
+                <div className="text-xs text-muted-foreground space-y-1.5 mt-2 p-3 rounded-lg bg-muted/50 border border-border/60">
+                  <p className="font-semibold text-foreground/80">API Key 발급 방법</p>
+                  <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                    <li>
+                      <a
+                        href="https://openapi.nexon.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        Nexon Open API
+                      </a>
+                      {" "}홈페이지 접속 및 로그인
+                    </li>
+                    <li>상단 <span className="font-medium text-foreground/70">마이 페이지</span> 클릭</li>
+                    <li><span className="font-medium text-foreground/70">애플리케이션 등록</span> 클릭</li>
+                    <li>서비스명: <span className="font-medium text-foreground/70">메이플 일기장</span>, App 타입: <span className="font-medium text-foreground/70">개발 단계</span> 선택</li>
+                    <li>등록 완료 후 발급된 API Key를 위에 입력</li>
+                  </ol>
+                </div>
               </div>
 
               <Button

@@ -164,10 +164,12 @@ export function HuntingDialog({
     }
   }, [open, ocrResult, isOcrApplied]);
 
-  // 다이얼로그 닫힐 때 OCR 적용 상태 초기화
+  // 다이얼로그 닫힐 때 상태 초기화
   useEffect(() => {
     if (!open) {
       setIsOcrApplied(false);
+      setShowNewForm(false);
+      setEditingSession(null);
     }
   }, [open]);
 

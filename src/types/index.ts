@@ -184,6 +184,63 @@ export interface DailyTotalWithPieces {
   avg_piece_price: number;
 }
 
+// 장비 관련 타입
+export interface EquipmentStatOption {
+  str: string;
+  dex: string;
+  int: string;
+  luk: string;
+  max_hp: string;
+  max_mp: string;
+  attack_power: string;
+  magic_power: string;
+  armor: string;
+  speed: string;
+  jump: string;
+  boss_damage: string;
+  ignore_monster_armor: string;
+  all_stat: string;
+  damage: string;
+}
+
+export interface EquipmentItem {
+  item_equipment_part: string;
+  item_equipment_slot: string;
+  item_name: string;
+  item_icon: string;
+  item_shape_name: string;
+  item_shape_icon: string;
+  item_total_option: EquipmentStatOption;
+  item_base_option: EquipmentStatOption;
+  potential_option_grade: string;
+  potential_option_1: string;
+  potential_option_2: string;
+  potential_option_3: string;
+  additional_potential_option_grade: string;
+  additional_potential_option_1: string;
+  additional_potential_option_2: string;
+  additional_potential_option_3: string;
+  starforce: string;
+  scroll_upgrade: string;
+  soul_name: string | null;
+  soul_option: string | null;
+  special_ring_level: number;
+  date_expire: string | null;
+}
+
+export interface EquipmentResponse {
+  date: string;
+  character_gender: string;
+  character_class: string;
+  preset_no: number;
+  item_equipment: EquipmentItem[];
+  title: {
+    title_name: string;
+    title_icon: string;
+    title_description: string;
+  } | null;
+}
+
 // OCR 스크린샷 데이터
 export interface HuntingScreenshotData {
   level: number | null;

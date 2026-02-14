@@ -156,6 +156,42 @@ input[type="number"] {
   outline-offset: 2px;
 }
 
+/* 달력 반응형 */
+.calendar-cell {
+  min-height: 7rem;
+  height: calc((100vh - 220px) / 6.5);
+}
+
+@media (min-width: 1280px) {
+  .calendar-cell {
+    min-height: 8rem;
+  }
+  .cal-text-xs { font-size: 11px; }
+  .cal-text-sm { font-size: 12px; }
+  .cal-icon-sm { width: 14px; height: 14px; }
+  .cal-icon-xs { width: 12px; height: 12px; }
+}
+
+@media (min-width: 1920px) {
+  .calendar-cell {
+    min-height: 9rem;
+  }
+  .cal-text-xs { font-size: 13px; }
+  .cal-text-sm { font-size: 14px; }
+  .cal-icon-sm { width: 16px; height: 16px; }
+  .cal-icon-xs { width: 14px; height: 14px; }
+}
+
+@media (min-width: 2560px) {
+  .calendar-cell {
+    min-height: 11rem;
+  }
+  .cal-text-xs { font-size: 15px; }
+  .cal-text-sm { font-size: 16px; }
+  .cal-icon-sm { width: 18px; height: 18px; }
+  .cal-icon-xs { width: 16px; height: 16px; }
+}
+
 /* 애니메이션 */
 @keyframes fadeIn {
   from { opacity: 0; }

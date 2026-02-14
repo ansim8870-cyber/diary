@@ -151,6 +151,25 @@ impl MapleApi {
         }
     }
 
+    pub async fn get_character_equipment(&self, ocid: &str) -> Result<serde_json::Value, ApiError> {
+        let url = format!("{}/character/item-equipment", MAPLE_API_BASE);
+
+        let response = self
+            .client
+            .get(&url)
+            .header("x-nxopen-api-key", &self.api_key)
+            .query(&[("ocid", ocid)])
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let data: serde_json::Value = response.json().await?;
+            Ok(data)
+        } else {
+            Err(Self::parse_error_response(response).await)
+        }
+    }
+
     // 특정 날짜의 캐릭터 정보 조회
     pub async fn get_character_basic_by_date(&self, ocid: &str, date: &str) -> Result<CharacterBasic, ApiError> {
         let url = format!("{}/character/basic", MAPLE_API_BASE);
